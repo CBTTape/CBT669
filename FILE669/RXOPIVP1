@@ -1,0 +1,150 @@
+ /*                                                                 rexx
+ IVP 1 - do modifys, retrieve responses
+
+ The IVP is primarily designed to test and verify the features of
+ RXOPCOMM, but it also doubles as demo of the program's capabilites.
+
+ Note, the IVP assumes and requires that SDSF is available and that
+ the IVP job has authority to issue commands from SDSF. If that is not
+ the case, then please contact me with an alternative process.
+ */
+
+ say 'Version:' RXOPCOMM('version')
+ say ''
+ jbn = mvsvar('symdef','jobname')
+ maxrc=0
+ cmdn=0
+ dcmn=0
+ rspn=0
+
+ /* do WTO */
+ cc=RxOpcomm('WTO',jbn 'Testing' RXOPCOMM('version'))
+ if cc<>0 then exit xmsg('WTO failed rc' cc rxopcomm_reason)+8
+ cc=Listdsi('SYSEXEC FILE')
+ if left(sysdsname,15)='CBT669.PP.RXOPCOMM' & userid()='WJ' then do
+   cc=RxOpcomm('WTO',jbn 'Testing permanent WTO','p')
+   if cc<>0 then exit xmsg('WTO failed rc' cc rxopcomm_reason)+8
+   cc=RxOpcomm('WTO',jbn 'Testing WTO for job','j')
+   if cc<>0 then exit xmsg('WTO failed rc' cc rxopcomm_reason)+8
+ end
+
+ /* prep some test cases */
+ do n=1 to 20
+   text.n='TEST PROMPT' n
+ end
+
+ /* initialize           */
+ cc=RxOpComm('INIT','OPCOMM initialized')
+ if cc<>0 then exit xmsg('INIT failed rc' cc rxopcomm_reason)+8
+ zz=isfcalls('ON')
+
+ /* request response using WTO */
+ txt = 'Demo response using WTO'
+ Call DoMfy txt
+ Call DoGet translate(txt)
+ say ''
+
+ /* single modify + getresp */
+ say 'Single modify + getresp'
+ cmdn=cmdn+1
+ Call DoMfy text.cmdn
+ Call DoGet text.cmdn
+ say ''
+
+ /* getresp with no modifys */
+ say 'Getresp with no modifys'
+ Call DoGet ''
+ say ''
+
+ /* 3 modifys + getresps */
+ say '3 modifys + getresp'
+ do n=cmdn+1 to cmdn+3
+   Call DoMfy text.n
+   Call DoGet text.n
+ end
+ cmdn=n-1
+ say ''
+
+ /* 4 modifys, then 4 getresps */
+ say '4 modifys, then 4 getresps'
+ say 'command....'
+ do n=cmdn+1 to cmdn+4
+   Call DoMfy text.n
+ end
+ say 'getresp....'
+ do n=cmdn+1 to cmdn+4
+   Call DoGet text.n
+ end
+ cmdn=n-1
+ say ''
+
+ /* 4 modifys, loop until no more */
+ say '4 modifys, loop until no more'
+ say 'command....'
+ do n=cmdn+1 to cmdn+4
+   Call DoMfy text.n
+ end
+ say 'getresp....'
+ do n=cmdn+1 to cmdn+6 until RXOPCOMM_MORE<>'Y'
+   Call DoGet text.n
+ end
+ cmdn=n-1
+ say ''
+
+ /* 4 modifys, then getlist  */
+ say '4 modifys, then getlist'
+ say 'command....'
+ gcn=cmdn+1
+ do n=cmdn+1 to cmdn+4
+   Call DoMfy text.n
+ end
+ cmdn=n-1
+ say 'getlist....'
+ cc=RxOpComm('GETLIST','rsplist.')
+ if cc<>0 then exit xmsg('GETLIST failed rc' cc rxopcomm_reason)+8
+ if rsplist.0<>4 then exit xmsg('#response='rsplist.0 +0', not 4')
+ do n=1 to 4
+   say 'response'n'='rsplist.n
+   if rsplist.n<>text.gcn then,
+      exit xmsg('list' n 'ne expected' text.gcn)+8
+   gcn=gcn+1
+ end
+ rspn=rspn+4
+ say ''
+
+ /* now stop it */
+ say 'Stop..'
+ Call DoCmd 'P' jbn
+ Call DoGet 'STOP'
+ say ''
+
+ /* complete */
+ cc=RxOpComm('TERM','OPCOMM terminated')
+ if cc<>0 then exit xmsg('TERM failed rc' cc rxopcomm_reason)+8
+ Exit xmsg(time() 'Done, rc' maxrc,
+      || ',' dcmn 'modifys issued,' rspn 'proper responses')
+
+DoMfy: Return DoCmd('F' jbn','arg(1))
+DoCmd:
+ parse arg dccmd
+ dcmn=dcmn+1
+ say time() 'Command: ' dccmd
+ Address SDSF ISFSLASH "'"dccmd"' (wait)"
+ l=value('isfulog.'isfulog.0)
+ if wordpos('IEE342I',l)=0 then return 0
+ say '**log->' l
+ maxrc=max(maxrc,8)
+ return 0
+DoGet:
+ cc=RXOPCOMM('GET')
+ say time() 'Response:' cc 'more:' RXOPCOMM_MORE
+ if datatype(cc)='NUM' & cc<>0 then,
+   exit xmsg('Rc' cc RXOPCOMM_REASON)+8
+ if cc=arg(1) then do
+   rspn=rspn+1
+   return 0
+ end
+ say '**Bad response, expected was:' arg(1)
+ maxrc=max(maxrc,8)
+ return 0
+XMsg: if arg(1)<>'' then say time() arg(1);return word(arg(2) 0,1)

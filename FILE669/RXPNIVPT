@@ -1,0 +1,18 @@
+/*                                                         rexx
+    REXX Pattern Check IVP
+    positional parms: string,pattern,wildcard,expect-rc
+*/
+
+ say 'Test REXX Pattern Check utility RXPATTRN'
+
+ say 'Version:' RxPattrn('Version')
+
+ say ''
+ say 'Test completed'
+ exit 0
+
+Test:
+ say 'Testing' arg(1)','arg(2)','arg(3)','arg(4)
+ cc = RxPattrn(arg(1),arg(2),arg(3),arg(4))
+ say ''
+ return 0

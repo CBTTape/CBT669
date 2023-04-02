@@ -1,0 +1,192 @@
+/*                                                         rexx
+    REXX Pattern Check IVP
+    positional parms: string,pattern,wildcard,expect-rc
+*/
+
+trace off
+ say 'Test REXX Pattern Check utility RXPATTRN (IVP1)'
+ testrc=0
+ say ''
+ say 'Version:' RXPATTRN('version')
+ say ''
+
+ text1 = 'Kilroy was here some time ago'
+ text2 = 'this is a string with some names - Gandalf and Frodo'
+
+ /* parms: text, mask, wildcards, expect-rc, Trace */
+ cc = TestF1('IEFBR14','%%%BR*',,0 )
+ cc = TestF1('IEFBR14','???BR#','#?',0 )
+ cc = TestF1('IEFBR14','IEFB*',,0 )
+ cc = TestF1('IEFBR14','IEFBR14*',,0 )
+ cc = TestF1('TESTAAA','TEST%%%',,0,'T')
+ cc = TestF1('Kilroy was here','*',,0)
+ cc = TestF1(text1,'%%%BR*',,1 )
+ cc = TestF1(text1,'*her*',,0  )
+ cc = TestF1(text2,'*not*',,1  )
+ cc = TestF1(text2,'*nam*',,0  )
+ cc = TestF1(,'*nam*',,2       )
+ cc = TestF1(text2,,,3         )
+ /* 2022-10-26 */
+ cc = TestF1('ABCDEF','A*EF',,0)
+ cc = TestF1('ABCDEF','ABC*F',,0)
+ cc = TestF1('ABCDEF','ABCD*F',,0)
+
+ cc = TestF1('Aexor Blixzgsnn Lexxiko22ersxc. AG 1234 Yolixaon',,
+           'A*x%r Bl%xz*nn%Le%%ik%%%ersxc*AG*Y%%%%%on',,0)
+
+ cc = TestF1('Aexor Blixzgsnn Lexxiko22ersxc. AG 1234 Yolixaon',,
+           'A*x%r Bl%xz*nn%Le%%ik%%%ersxc*AX*Y%%%%%on',,1)
+ say ''
+
+ /* V004 - overlay new or existing stem */
+ say '-- V004 - overlay new or existing stem --'
+ say ''
+ testrc=0
+
+ say 'test generate result stem'
+ Call MakeV004Data
+ cc = TestF2('stem(test.) rstem(result.) mask(*LIB*) ')
+ do n=1 to test.0
+   say 'test.'left(n,2) left(test.n,30) 'result.'left(n,2) result.n
+ end
+ if rxpattrn_match<>9 then exit xmsg('matchnum ne 9')+8
+ say ''
+
+ say 'test overlay existing stem'
+ cc = TestF2('stem(test.) mask(*LIB*)',
+              'mchr(+) mpos(2) nchr(-) npos(4)')
+ do n=1 to test.0
+   say 'test.'left(n,2) test.n
+ end
+
+ say ''
+ say 'test generate result stem with pos and len'
+ drop result.
+ Call MakeV004Data
+ cc = TestF2('stem(test.) rstem(result.)',
+      'mask(*LIB*) pos(5) len(12) mchr(+) nchr(-)')
+ do n=1 to test.0
+   say 'test.'left(n,2) left(test.n,30) result.n
+ end
+ if rxpattrn_match<>7 then exit xmsg('matchnum ne 7')+8
+
+ say ''
+ say 'test multiple masks, result to stem'
+ drop result.
+ cc = TestF2('stem(test.) rstem(result.)',
+      'mask(*LIB*,*ALL*) mdlm(,) mchr(+) nchr(-)')
+ do n=1 to test.0
+   say 'test.'left(n,2) left(test.n,30) result.n
+ end
+ if rxpattrn_match<>11 then exit xmsg('matchnum ne 11')+8
+
+ say 'Test build 006 - NSTEM'
+ say ''
+ say '1. create filtered stem'
+ cc = Testf2('stem(test.) nstem(new.) mask(*LIB*)')
+ do n=0 to new.0
+   say 'new.'left(n,2) left(new.n,30)
+ end
+ if rxpattrn_match<>9 then exit xmsg('matchnum ne 9')
+ drop new.
+ say ''
+
+ say '2. filter input stem'
+ cc = Testf2('stem(test.) nstem(test.) mask(*LIB*)')
+ do n=0 to test.0
+   say 'test.'left(n,2) left(test.n,30)
+ end
+ if rxpattrn_match<>9 then exit xmsg('matchnum ne 9')
+ drop test.
+ say ''
+
+ say '3. filter using multiple ORed masks'
+ Call MakeV004Data
+ cc = Testf2('stem(test.) nstem(new.) mask(*LIB*,*CICS*,*LOAD*) MDLM(,)')
+ do n=0 to new.0
+   say 'new.'left(n,2) left(new.n,30)
+ end
+ if rxpattrn_match<>12 then exit xmsg('matchnum ne 12')+8
+ say ''
+
+ say '4. filter using multiple ANDed masks'
+ Call MakeV004Data
+ cc = Testf2('stem(test.) nstem(new.) mask(*DATA,*CICS*) MDLM(,)',
+      'MCND(A)')
+ do n=0 to new.0
+   say 'new.'left(n,2) left(new.n,30)
+ end
+ if rxpattrn_match<>1 then exit xmsg('matchnum ne 1')+8
+
+ /* done */
+ say ''
+ exit xmsg('Test completed rc' testrc,testrc)
+
+TestF1:  /* run test using format 1 - positional */
+trace off
+ parse arg tdata,tmask,twc,txrc,topt /* topt: T=trace */
+ txrc=word(txrc 0,1)
+ say ''
+ say 'string  ' right(length(tdata),3,0) tdata
+ say 'pattern ' right(length(tmask),3,0) tmask
+ say 'wildcard' right(length(twc),3,0) twc
+ say 'expectrc' txrc
+ if topt<>'' then say 'option  ' topt
+ cc=RXPATTRN(tdata,tmask,twc,topt)
+ /*=RXPATTRN(arg(1),arg(2),arg(3),arg(5))  */
+ say 'rc      ' cc 'reason' strip(RXPATTRN_RS)
+ if cc>txrc then do
+   testrc=8
+   return xmsg('Bad rc ******',8)
+ end
+ return 0
+
+TestF2:  /* run test using format 1 - keywords   */
+trace off
+ say 'Testing ' arg(1)
+ cc=RXPATTRN(arg(1))
+ say '->rc:' cc 'matchnum' rxpattrn_match 'reason' strip(RXPATTRN_RS)
+ if cc>word(arg(2) 0,1) then do
+   testrc=8
+   return xmsg('Bad rc ******',8)
+ end
+ say ''
+ return 0
+
+ /* make test stem */
+MakeV004Data:
+ drop test.
+ queue  'DDIR.I                    '
+ queue  'HFS                       '
+ queue  'BACKUP.ALL                '
+ queue  'BACKUP.ALL.TRS            '
+ queue  'DFH410.CICS.DFHGCD        '
+ queue  'DFH410.CICS.DFHGCD.DATA   '
+ queue  'KG.DATA                   '
+ queue  'HCD.TRACE                 '
+ queue  'LIB.LINKLIB               '
+ queue  'DCOL.DATASET.REPORT       '
+ queue  'LIB.DOCLIB                '
+ queue  'LIB.MACLIB                '
+ queue  'DCOLLECT.BYVOL            '
+ queue  'DCOLLECT.DATA             '
+ queue  'DATADICT.EXPORT           '
+ queue  'DCOLLECT.JCL              '
+ queue  'DCOLLECT.LIB              '
+ queue  'LIB.EXEC                  '
+ queue  'DEZHI.EXEC                '
+ queue  'HCD.MSGLOG                '
+ queue  'DEZHI.ISPMLIB             '
+ queue  'DEZHI.ISPPLIB             '
+ queue  'LIB.CLIST                 '
+ queue  'JCL.XML                   '
+ queue  'DASDVOL.REPORT            '
+ queue  'DEZHI.LOAD                '
+ queue  'DEZHI.MACLIB              '
+ test.0=queued()
+ do n=1 to test.0
+   pull test.n .
+ end
+ return 0
+
+XMsg: if arg(1)<>'' then say arg(1);return word(arg(2) 0,1)

@@ -1,0 +1,165 @@
+ /*                                                             REXX
+  RXVSAMBA Installation Verification build eXtra
+ */
+ parse source sys type whoami ddn whereami .
+ address tso
+ maxrc=0
+ totdel=0
+ totins=0
+ dbkeylen=25
+ cols100= '----+----1----+----2----+----3----+----4',
+       || '----+----5----+----6----+----7----+----8',
+       || '----+----9----+----0'
+ cols40=left(cols100,40)
+ cols80=left(cols100,80)
+
+ arg p
+ if p<>'' then say 'Parameters:    ' p
+ parse var p . 'PFX('dspfx')' . 0 . 'PGM('pgmname')' .,
+       0 . 'DELA('dela')' . 0 . 'VOL('testvol')' .
+ parse var whereami q1'.'
+ if dspfx='' then dspfx=userid()
+ if pos('.',dspfx)=0 then dspfx=dspfx'.RXVSAMBA'
+ ksdsds ="'"dspfx".TEST.KSDS'"
+ rrdsds ="'"dspfx".TEST.RRDS'"
+ pgmname=word(pgmname 'RXVSAMBA',1)
+ dela   =word(dela    'N',1)
+ call xmsg 'Program test specs'
+ say 'Dataset prefix..' dspfx
+ say 'Test KSDS name..' ksdsds
+ say ''
+
+ /*------------------ Version ----------------------------------------*/
+ call xmsg 'Test version'
+ cc=RunPgm('version')
+ say 'version' RXVBVERS
+ say ''
+
+ /*------------------ Status -----------------------------------------*/
+ call xmsg center('KSDS',70,'-')
+ say ''
+ Call MakeKSDS     /* setup test data */
+ Call DBinfo 'KSDS'
+ if RXVBrecl<>200 then Exit Xmsg('*error*, lrecl should be 200',20)
+ say ''
+
+ call xmsg 'List all records'
+ cc=RxVsamBa('get dd(ksds) stem(lst.)')
+ call xmsg 'Get all ended rc' cc 'returned' lst.0 'records'
+
+ do n=1 to lst.0
+   say lst.n
+ end
+ say ''
+
+ /*------------------ Get with pos   ---------------------------------*/
+
+ call xmsg '- Get with valid pos -'
+ cc=RunPgm('get dd(ksds) text(LIB) pos(06) endpos(16) stem(lst.) ')
+ say 'records retrieved:' lst.0
+ do n=1 to lst.0
+   say lst.n
+ end
+ say ''
+
+ call xmsg '- Get with invalid pos -'
+ cc=RunPgm('get dd(ksds) text(LIB) pos(aa) endpos(16) stem(lst.) ')
+ say 'records retrieved:' lst.0
+ do n=1 to lst.0
+   say lst.n
+ end
+ say ''
+
+ /*------------------ End ok         ---------------------------------*/
+ok:
+ cc=Silent("Free dd(ksds)")
+ Call Rtn 'All ok'
+
+Rtn:
+ if arg(1)<>'' then say arg(1)
+ if arg(2)<>'' then maxrc=word(arg(2) maxrc,1)
+ if dela='Y'   then do
+   if Silent("Delete" ksdsds "cl")=0 then,
+     say 'Testcl' ksdsds 'deleted'
+   else  say 'Testcl' ksdsds 'delete failed'
+ end
+ exit xmsg('IVP ended rc' maxrc,maxrc)
+
+RunPgm:
+ say time() 'Runpgm' arg(1)
+ /*
+ parse upper value arg(1) with . ' STEM('s')' .
+ if s<>'' then zz=Value(s'0',0)
+ */
+ parse upper value arg(1) with . ' LISTSTEM('s')' .
+ if s<>'' then zz=Value(s'0',0)
+ Interpret "cc="pgmname"('"arg(1)"')"
+ call liststat
+ if arg(2)='' then return cc
+ if cc<>arg(2) then exit xmsg('rc' cc+0 'ne' arg(2),20)
+ return cc
+
+ListStat:
+ say time() 'rc' cc 'reads' rxvbread+0,
+     'writes' rxvbwrit+0 'inserts' rxvbinse+0 'updates' rxvbupdt+0,
+     'deletes' rxvbdele+0 'errmsg "'space(rxvberrm)'"'
+ return cc
+
+Silent: zz=outtrap(word(arg(2) '$.',1))
+        address tso arg(1);zz=outtrap('off');return rc
+
+Xmsg: say time() arg(1);maxrc=word(arg(2) maxrc,1);return word(arg(2) 0,1)
+
+SayError:
+ say 'Error' arg(1)
+ cc=RexxGblv('rlist var(rxvb*)')
+ return 0
+
+DBinfo:
+ call xmsg 'DB info for DD' arg(1)
+ cc=RxVsamBa('info dd('arg(1)')')
+ say 'keylen ' RXVBkeyl
+ say 'keypos ' RXVBkeyp
+ say 'lrecl  ' RXVBrecl
+ say 'dbtype ' RXVBdbty
+ return 0
+
+MakeKSDS:
+ arg p
+ cc=Silent("Free dd(ksds)")
+ cc=Silent("DELETE" ksdsds "cl")
+ "DEFINE CLUSTER(NAME("ksdsds") VOLUME(XXXXXX)",
+ "TRACKS(3 3) KEYS("dbkeylen "0) RECORDSIZE(60 200) )",
+ "DATA(CISZ(4196))"
+ if rc<>0 then do
+   say 'Define failed rc' rc,20
+   exit 20
+ end
+ "alloc dd(ksds) da("ksdsds") shr"
+ if rc<>0 then exit xmsg('Alloc test db failed' rc)
+ say  'Test cluster allocated to fileref KSDS'
+
+ Call MakeTestData
+ datan=data.0
+ trace off
+ cc=RxVsamBA('put dd(ksds) stem(data.)')
+ if cc<>0 then exit xmsg('2nd write failed rc' cc,20)
+ trace off
+ call liststat
+ drop data.
+ return 0
+ if p<>'SILENT' then say qn 'records written to db'
+ return 0
+
+MakeTestData:
+ queue cols40
+ queue 'DOCLIB                            ZXSYS2 PO-E VB            200 32760'
+ queue 'ISPF34.LIB                '
+ queue 'ISPLLIB                           ZXSYS2 PO         U     27920 27920'
+ queue 'ISPMLIB                   '
+ data.0=queued()
+ do n=1 to data.0
+   parse pull r
+   data.n=r
+ end
+ return 0

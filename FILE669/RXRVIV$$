@@ -1,0 +1,37 @@
+//RXRVIV$$ JOB (1),'RXRVIV$$',CLASS=A,COND=(0,LT),REGION=64M
+//*
+//IVP2     EXEC RXINSTRM,EXEC1='CBT669.PP.REXXVARS.V004.LIB'
+//STEPLIB  DD DISP=SHR,DSN=CBT669.LINKLIB
+//REXX     DD DATA,DLM=@@
+
+ rc=RxExecio('get dsn(CBT669.doclib(pdsmain)) stem(text.)')
+ say 'list top, count is' text.0
+ do n=1 to 10
+   say text.n
+ end
+ say '----'
+ say ''
+ trace r
+ cc=RexxVars('copy var(text.#) as(new.#) ')
+ trace off
+ say 'rc='cc 'stat='rexxvars_stat
+ if new.0<>text.0 then exit xmsg('outnum' new.0 'ne inputnum' text.0,8)
+ say '----'
+ say ''
+ cc=RexxVars('list var(text.#) nw(12)')
+ say '----'
+ say ''
+ cc=RexxVars('list var(new.#) nw(12)')
+ say '----'
+ say ''
+ say 'List 1000 records'
+ cc=RexxVars('list var(text.#) nw(12) count(1000)')
+ if REXXVARS_OUTN<>1000,
+   then exit xmsg('outnum' REXXVARS_OUTN 'ne 1000',8)
+ say '----'
+ say ''
+
+ exit xmsg('All ok')
+
+XMsg: if arg(1)<>'' then say arg(1);return word(arg(2) 0,1)
+@@

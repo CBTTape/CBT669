@@ -1,0 +1,54 @@
+*-
+* Local customization
+*-
+*
+* JPAQopt determines if the module is kept in storage after first load.
+* This can significantly improve performance if REXXGBLV is loaded from
+* a private library and is used a lot.
+* Set JPAQopt to 'N' if you do not want to retain the module.
+&JPAQopt     setc  'Y'
+*
+* NullLoadRC controls the return code set when a LOAD does not
+* return any records. This also covers the situation where the pool
+* do not exist. You can check the REXXGBLV_MSG varaible for the
+* reason why no records were returned.
+*  Default rc as of build 63 is 4 - note that this has changed from
+* 0 due to user request.
+&NullLoadRC  seta  4
+*
+* NoPoolRc controls the return code set by some functions when the pool
+* is not found.
+*  Default rc as of build 63 is 4 - note that this has changed from
+* 0 due to user request.
+&NoPoolRc    seta  4
+*
+* SaveNoVarRc is the return code set when the SAVE function cannot
+* retrieve the named variable(s) - descrete or generic.
+&SaveNoVarRc seta  4
+*
+* ListNoVarRc is the return code set when the LIST function cannot
+* find anything to list.
+&ListNoVarRc seta  0
+*
+* ReqVar defines if a VAR(name) parameter is required for SAVE, LOAD
+* and RLIST.
+&ReqVar      setb  0                   1 VAR is not required
+&ReqVar      setb  1                   1 VAR is required
+*
+* Stackvar is the name prefix given by default when storing the stack.
+* Use a number as the first character to prevent it to be used as a
+* real variable name.
+* The actual variable name will be &stackvar || running-number.
+&StackVar    setc  '0STACK'
+&StackVar    setc  '0S'                build 074
+*
+* Stackmode defines how the internal variable name is generated when
+* saving the stack.
+* 074      Save as &stackvar+right-adjusted number, i.e. 0STACK123.
+*          This retains the proper order if the variables are later
+*          returned to REXX using the LOAD STACK command.
+*          The width number is set to 6, allowing for a maximum of
+*          999999 elements.
+*          0S0 contains the number of elements stored.
+* pre-074  Save as &stackvar+truncated-number, i.e. 0STACK123.
+&StackMode   setc  '074'

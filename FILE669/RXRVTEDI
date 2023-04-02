@@ -1,0 +1,94 @@
+/* rexx */
+ address ispexec "control errors return"
+
+ "STEPLIB ALLOCATE DATASETS('CBT669.LINKLIB') SHR REUSE NOMSGS"
+ say 'Version:' RexxVars('version')
+
+ Call   test1
+ Call   test2
+ Call   test3
+ exit 0
+
+test1:
+ "clear"
+ say 'Test standard stem...'
+ call MkText1
+ zz=RexxVars('list var(text1.) hdr(text1* before test1)')
+ trace r
+ cc=RexxVars('edit var(text1.) ')
+ trace off
+ say 'rc='cc 'rsn='rexxvars_rsn 'stat='rexxvars_stat
+ "delstack"
+ if cc<>0 then exit
+ zz=RexxVars('list var(text1*) hdr(text1* after test1)')
+ say ''
+ Return 0
+
+Test2:
+ "clear"
+ say 'Test numbered stem...'
+ call MkText2
+ zz=RexxVars('list var(text2.) hdr(text2* before test2)')
+ trace r
+ /*zz=Bpxwdyn('alloc dd(sysmdump) da('userid()'.sysmdump) shr reuse') */
+ cc=RexxVars('edit var(text2.#)')
+ trace off
+ say 'rc='cc 'rsn='rexxvars_rsn 'stat='rexxvars_stat
+ /*zz=Bpxwdyn('free dd(sysmdump)')*/
+ "delstack"
+ if cc<>0 then exit
+ zz=RexxVars('list var(text2* ed*) hdr(text2* after test2)')
+ Return 0
+
+Test3:
+ "clear"
+ say 'Test edit stack...'
+ call MkTextQ
+ trace r
+ cc=RexxVars('edit stack')
+ trace off
+ say 'rc='cc 'rsn='rexxvars_rsn 'stat='rexxvars_stat
+ say 'Stackcnt='queued()
+ do queued()
+   parse pull r
+   say r
+ end
+ Return 0
+
+MkTextQ:
+ "delstack"
+ queue 'Alpha    Doctor Who is a British science-fiction           '
+ queue 'Bravo    television programme produced by the BBC from 1963'
+ queue 'Charlie  to the present day. The programme depicts the     '
+ queue 'Delta    adventures of the Doctor, a Time Lord a           '
+ queue 'Echo     time-travelling humanoid alien. He explores the   '
+ queue 'Foxtrot  universe in his TARDIS, a sentient time-travelling'
+ queue 'Golf     space ship. Its exterior appears as a blue British'
+ queue 'Hotel    police box, which was a common sight in Britain in'
+ queue 'India    1963 when the series first aired.                 '
+ return 0
+
+MkText1: /* stem by name */
+ drop text1. text2.
+ Call MkTextQ
+trace off
+ do queued()
+   parse pull t
+   n=translate(word(t,1))
+   zz=Value('TEXT1.'n,strip(t,'t'))
+ end
+ drop n t
+ return 0
+
+MkText2: /* stem by number */
+ drop text1. text2.
+ Call MkTextQ
+trace off
+ text2.0=queued()
+ qn=queued()
+ do n=1 to qn
+   parse pull t
+   text2.n=strip(t,'t')
+ end
+ drop n t
+ return 0

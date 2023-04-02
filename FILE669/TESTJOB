@@ -1,0 +1,68 @@
+//TESTJOB  JOB (1),'TESTJOB',CLASS=A,COND=(0,LT),REGION=64M
+//*
+//A        EXEC RXINSTRM
+//SYSTSPRT DD SYSOUT=*,OUTLIM=200
+//STEPLIB  DD DISP=SHR,DSN=CBT669.LINKLIB
+//REXX     DD *
+ /* rexx */
+trace off
+
+ say 'RexxGblv version:' Rexxgblv('version')
+ parse value Rexxgblv('version') with .'.'rxgvver'.'.
+ say ''
+
+ say '067'
+ t.aalpha   = '1st letter'
+ t.abeta    = '2nd letter'
+ t.acharlie = '1st letter'
+ t.balpha   = '1st letter'
+ t.bbeta    = '2nd letter'
+ t.bcharlie = '1st letter'
+ data.first = 'just testing'
+ data.second= 'another test'
+ parse value 'Kilroy was here' with who when where
+
+ say '- Save'
+ Call runpgm 'save var(wh* data. t.) pool(test) ','',0
+ zz=Rexxgblv('list pool(test)')
+ say ''
+
+ say '- Delete & save'
+ drop t. data.
+ t.echo     = 'phonetic E'
+ t.foxtrot  = 'phonetic F'
+ data.text1 = 'Dr Who is an english TV series'
+ Call runpgm 'delsave var(t. data.) pool(test) ','',0
+ zz=Rexxgblv('list pool(test)')
+
+ say '- Drop & save'
+ username = 'Robinson Crusoe'
+ useraddr = 'a deserted island'
+ Call runpgm 'dropsave var(user*) pool(test) ','',0
+ zz=Rexxgblv('list pool(test)')
+
+ exit Xmsg('All ok...')
+
+RunPgm:
+ trace off
+ if arg(2)<>'' then say '->' space(arg(2) '-' arg(1))
+ else               say '->' space(arg(1))
+ cc=RexxGblv(arg(1))
+ say 'rc='cc+0 'msg="'REXXGBLV_msg'"',
+     'vsaven='REXXGBLV_VSAVEN+0,
+     'vloadn='REXXGBLV_VLOADN+0,
+     'vlistn='REXXGBLV_VLISTN+0,
+     'vdeln='REXXGBLV_VdelN+0,
+     'rlistn='REXXGBLV_RLISTN+0,
+     'rloadn='REXXGBLV_RLOADN+0,
+     'importn='REXXGBLV_importn+0,
+     'exportn='REXXGBLV_exportn+0,
+     'maxnl='REXXGBLV_MAXNL+0,
+     'maxdl='REXXGBLV_MAXDL+0,
+     'maxndl='REXXGBLV_MAXNDL+0,
+     'stats='REXXGBLV_STATS
+ say ''
+ if cc<=word(arg(3) 0,1) then return 0
+ exit xmsg('**Error',8)
+
+XMsg: if arg(1)<>'' then say arg(1);return word(arg(2) 0,1)

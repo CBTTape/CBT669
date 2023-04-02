@@ -1,0 +1,3 @@
+ /* dummy IVP                                                rexx */
+ say 'Version:' RexxVars('VERSION')
+ exit 0

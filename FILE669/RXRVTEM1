@@ -1,0 +1,18 @@
+ /*    ISPF edit macro                                   rexx */
+ say 'RXRVTEM1 running....'
+ Address Isredit "MACRO NOPROCESS (p)"
+ Address Isredit
+
+ "find 'Bravo'"
+ "del .zcsr .zcsr"
+ say 'RXRVTEM1 save....'
+ "save"
+ "(r) = line 5"
+ r = left(word(r,1),9) '*modified*'
+ "line 5 = (r)"
+ "autosave on"
+ say 'RXRVTEM1 end.....'
+ "end"
+
+ say 'RXRVTEM1 done....'
+ exit 0
