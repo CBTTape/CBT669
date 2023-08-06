@@ -1,0 +1,148 @@
+RXPIPE - An introduction
+
+
+What is command piping
+
+ MSDOS, UNIX/LINUX and z/VM-CMS have a pipe command feature, with
+ which you can string a number of commands together, with each command
+ providing input for the next, with some reformatting in between.
+
+ Short Linux sample, which does a long format list of files in the
+ current directory, then feeds the list into the 'grep' command, which
+ passes lines where the text 'hercules' is found:
+
+  ls -l | grep "hercules"
+
+ z/OS TSO has the same capability, but only if you purchase the Batch
+ Pipes product, which includes the TSO PIPE command. The TSO PIPE
+ command has been ported from CMS, it is extremely powerful, but the
+ syntax can be rather intimidating.
+
+
+Why RXPIPE
+
+ RXPIPE is free and has a simpler command structure than the IBM
+ PIPE, Admittedly it has not got all the bells and whistles that the
+ IBM product has, but some of the shortcomings can be addressed by
+ running REXX statements directly in a pipe.
+
+
+Some RXPIPE samples
+
+ This sample is similar to the Linux sample above, it lists a users
+ datasets (&user is an internal variable containing the userid),
+ extracts all lines with '.TEST.' and displays those lines.
+
+  rxpipe catsearch &user a | include .TEST.
+
+ This sample shows a sorted list of your RACF TSO profile.
+
+  rxpipe tso lu &user tso noracf | exclude -- | include notnull
+
+
+RXPIPE and I/O
+
+ Doing I/O with RXPIPE is usually a simple matter, you just specify
+ the datasetname, no need to allocate and free. Dataset names must be
+ fully qualified, may not be quoted, but need not be in uppercase.
+
+ Sample read of a pds member.
+
+  rxpipe < sys1.help(cancel)
+
+ Sample write to dataset, which is reused or created.
+
+  rxpipe text Some sample data | > &user..rxpipe.test.ds cond
+
+
+Command stages
+
+ Each separate command is called a stage, each stage is separated by,
+ well, a separator which by default is the vertical bar (|).
+
+ Data is passed between the stages in the TSO stack. The callers stack
+ may be used as initial input and the final stack may be written back
+ to the callers stack. There is only one stack active at any one time,
+ but a stack can be saved and later reloaded. You can add and delete
+ stacks along the way. Using the TSO stack means that external
+ commands can very easily be included, as long as they read from the
+ stack and/or write to the stack.
+
+
+Running RXPIPE
+
+ RXPIPE can be executed directly from TSO READY, ISPF command panel,
+ as a function in REXX like cc=RxPipe(whatever) or as TSO command like
+ "RxPipe whatever".
+
+
+Installing RXPIPE
+
+ See the description in the RXPIDOC or RXPIPE members.
+
+
+Some more samples
+
+ Make a list of some SYS1 datasets, format, write to a dataset which
+ will be allocated if it does not exist, then list that dataset with
+ a heading. You could, of course, have done the list after the
+ format, but the sample demonstrates reading a dataset also. Input to
+ the BUILD command is the stack parsed into variables R (the entire
+ record) and W1-W20 (words 1 to 20).
+
+  Rxpipe dsnlist sys1.*lib fields dsname zdlvol zdldsorg zdlrecfm
+         | build left(w1,44) w2 left(w3,4) w4
+         | > &user..dsn.list cond
+         | < &user..dsn.list
+         | list Listing SYS1.*LIB
+
+ A nice-looking table with all TSO userids (assuming that you have
+ access to do LISTUSER).
+
+  Rxpipe tso lu * tso noracf | include USER= | shift l 5
+         | table bord both
+
+  Sample display:
+
+   +----------+----------+----------+----------+----------+
+   | DB2ADM   | DB2DAL   | EDIT     | EEEE     | IBMUSER  |
+   |----------|----------|----------|----------|----------|
+                             . . .
+   |----------|----------|----------|----------|----------|
+   | USER23   | USER24   | USER25   | USER26   | USER27   |
+   +----------+----------+----------+----------+----------+
+
+ Submit a job
+
+  rxpipe < SYSTEM.JOBLIB(BR14) | submit
+
+ Running an ISPF skeleton, then submit the result
+
+  rxpipe cats &user..lib a | skel listds | submit
+
+ Find all your own VSAM clusters
+
+  rxpipe cats &me a type cluster
+
+ Sort a dataset
+
+  rxpipe < my.lib.data(sorttest) | sort | > my.lib.data(sortout)
+
+ Or just a bit of fun:
+
+  rxpipe dsnlist sys1.*lib fields dsname | effect roll 3
+
+  Sample display:
+
+   SYS1.CCSSLIB
+    SYS1.CMDLIB
+     SYS1.COBLIB
+      SYS1.CSSLIB
+     SYS1.DBBLIB
+    SYS1.DFQLLIB
+   SYS1.DFQMLIB
+    SYS1.DFQPLIB
+     SYS1.DGTCLIB
+      SYS1.DGTLLIB
+     . . .
+      SYS1.VTAMLIB

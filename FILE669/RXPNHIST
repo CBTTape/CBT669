@@ -1,0 +1,21 @@
+ Ver  Desc
+ 001  Initial
+ 002  Change ASAXWC call to own StrPatrn
+ 003  2020-07-21
+       -  Fixed possible false negative when mask and string has same
+          length. This is really a fix to the STRPATRN macro.
+       -  Changed 4th parameter change to T for trace, better info for
+          tracing.
+ 004  2021-03-15
+       -  Add support for processing a stem.
+ 006  2021-07-16
+       -  Add support for creating a filtered stem.
+       -  New parameter MCND(cond) define condition A (AND) or O (OR)
+          for test of multiple masks. Default is Or.
+ 007  2022-10-26
+       -  Fix problem with 1 char after last asterix i.a. ABC*F
+ 008  2022-12-01
+       -  New parameters MASKVAR, MASKSTEM and WILDCD
+       -  cc and stem.0 are truncated dropping leading zeros
+ 009  2023-07-01
+       -  Major rewrite, all output stems have been renamed.

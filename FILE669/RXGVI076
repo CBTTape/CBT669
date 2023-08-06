@@ -1,0 +1,13 @@
+/*                                                                      rexx
+  REXXGBLV IVP - test build 076
+*/
+trace off
+
+ /* Build 076, call with null parm */
+ say 'Testing build 076'
+trace r
+ say 'RexxGblv version:' Rexxgblv('version')
+ zz=Rexxgblv()
+ say REXXGBLV_MSG
+ say 'Ok..'
+exit 0

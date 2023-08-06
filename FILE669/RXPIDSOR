@@ -1,0 +1,82 @@
+ /*                                                               rexx
+  RXPIPE DFSORT
+  Parameters: sort-parm; sortcntl1; .. ;sortcntln
+ */
+ if arg()=0 then exit 0     /* used for test of availability */
+
+ ddlist=''
+ /* get data specs */
+ count=queued()
+ maxl=0
+ minl=999999
+ totsz=0
+ do count
+   parse pull r
+   queue r       /* restack */
+   l=length(r)
+   maxl=max(maxl,l)
+   minl=min(minl,l)
+   totsz=totsz+l
+ end
+ parse value 'RXPDSOR1 RXPDSOR2 RXPDSOR3 RXPDSOR4',
+       with   sysin    sysout   sortin   sortout  .
+
+ /* Build sort cntl */
+ Call xtso 'free dd(sysin)'
+ Call XAlloc 'DFSPARM', 'LRECL(80) RECFM(F,B) tracks space(1,1)'
+ r.1=' OPTION MSGDDN='sysout',SORTIN='sortin',SORTOUT='sortout
+ "execio 1 diskw dfsparm (stem r.)"
+ parse arg sortparm ';' sc
+ do sn=1 to 9999 while sc<>''
+   parse var sc sc.sn ';' sc
+   if left(sc.sn,1)<>' ' then sc.sn=' 'sc.sn
+ end
+ "execio" sn-1 "diskw dfsparm (stem sc. finis)"
+ /* "execio * diskr dfsparm (stem lst. finis)"
+    Call List 'DFSPARM'  */
+
+ /* sortin and sortout datasets */
+ parse value 'F' maxl with rf sortl
+ if maxl>minl then parse value 'V' maxl+4 with rf sortl
+ /* say 'count='count 'maxl='maxl 'minl='minl 'totsz='totsz 'rf='rf,
+        'sortl='sortl */
+ Call XAlloc sortin,'LRECL('sortl')  RECFM('rf',B) tracks space(5,15)'
+ "execio" count "diskw" sortin "(finis)"
+ Call XAlloc sortout,'LRECL('sortl')  RECFM('rf',B) tracks space(5,15)'
+ Call XAlloc sysout,'LRECL(121)  RECFM(F,B) tracks space(5,5)'
+
+ /* run sort */
+ Address AttchMvs "SORT SORTPARM"
+ sortcc=rc
+ if sortcc<>0 then do
+   say 'Sort failed' sortcc
+   "execio * diskr" sysout "(stem r. finis)"
+   trace off
+   do n=1 to r.0
+     say r.n
+   end
+ end
+ else "execio * diskr" sortout "(finis)" /* onto stack */
+ Call Close sortcc
+
+Close:
+ if ddlist<>'' then Call XTSO 'free dd('ddlist')'
+ if arg(2)<>'' then say arg(2)
+ exit word(arg(1) 0,1)
+
+Xalloc:
+ cc=BPXWDYN('Alloc dd('arg(1)') reuse new delete unit(sysda)',
+            'blksize(0)' arg(2))
+ if cc<>0 then call close 8,'Alloc' arg(1) arg(2) 'failed' cc
+ ddlist=ddlist arg(1)
+ return 0
+
+XTSO: trace off; zz=outtrap(word(arg(2) '$.',1))
+        address tso arg(1);zz=outtrap('off');xtsorc=rc;return rc
+
+List:
+ if arg(1)<>'' then say arg(1)
+ do l=1 to lst.0
+   say lst.l
+ end
+ return 0

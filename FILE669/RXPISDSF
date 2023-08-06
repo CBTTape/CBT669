@@ -1,0 +1,119 @@
+/*                                                                   REXX
+
+ RXPIPE SDSF info and command
+
+ Get info from SDSF virtual panels, or issue system command
+
+ Syntax   command FIELDS fld-list OPTS sdsf-parm¨ ÝFILTER filter¨
+          ÝDEST dest-ids¨ OWNER owner¨ ÝPREFIX prefix¨ ÝSYSNAME
+          sysname¨ ÝCONS console¨ ÝDELAY delay¨ ÝNOPFX¨ ÝCOMPACT¨
+  command    The command (panelname) to execute, i.e. PARM, or one of
+             the special values described below.
+  fld-list   List of fields to return (required).
+  sdsf-parm  Parameter for the command, i.e. DELAYED.
+  filter     One or more triplets fieldname cond compare, without
+             intervening seperators, i.e. 'jname eq AB* jobid eq
+             JOB011*'. Note that filters are ANDed.
+  dest       One to four destination ids.
+  owner      Ownerid for filtering.
+  prefix     Jobname prefix for filtering.
+  sysname    Systemname for filtering.
+  console    Console id for command.
+  delay      Delay in seconds for command.
+  NOPFX      Command, do not return sysname, date and time.
+  COMPACT    Do not format fields to their widest. Default is to
+             adjust selected fields to their widest format.
+
+ Special commands
+  CMD sys-cmd
+   sys-cmd     Any valid system command. Response is stacked if
+               returned.
+  MYJOBS
+   show status for users jobs. Returned fields are JNAME JOBID JTYPE
+   and QUEUE. You may still add the FILTER parameter.
+
+ Samples
+  -  rxpipe sdsf proc fields dsname volser | table cols 2
+  -  rxpipe sdsf st filter jname eq wj* fields jname jobid
+  -  rxpipe sdsf cmd d net,majnodes
+  -  rxpipe myjobs
+
+ References
+   See chapter 'SDSF panels' in the 'SDSF Users Guide' manual.
+
+*/
+
+ if isfcalls('ON')<>0 then exit xmsg('IsfCalls ON failed')+8
+
+ parse value 0 0 0 with $nopfx $compact rc err,
+   $@cmd $opts $fields $filter $dest $owner,
+   $prefix $sysname $cons $delay
+ parse arg p
+ if translate(word(p,1))='MYJOBS' then ,
+   p='ST owner' userid() 'fields jname jobid jtype queue retcode',
+   subword(p,2)
+ Interpret RXPIKPAR('@CMD' p,,
+   '@CMD OPTS FIELDS NOPFX COMPACT',
+   'DEST FILTER OWNER PREFIX SYSNAME CONS DELAY',,
+   '$',1)
+ if $filter<>'' then,
+   parse value 'AND' $filter with isffiltermode isffilter
+ if $dest<>''    then isfdest=$dest
+ if $owner<>''   then isfowner=$owner
+ if $prefix<>''  then isfprefix=$prefix
+ if $sysname<>'' then isfsysname=$sysname
+ if $cons<>''    then isfcons=$cons            /* for command */
+ if $delay<>''   then isfdelay=$delay          /* for command */
+ if translate(word($@cmd,1))='CMD' then Return SysCmd() /* issue command */
+ if $fields=''  then exit xmsg('Field list is required')+8
+ upper $@cmd
+ address SDSF "ISFEXEC" $@cmd "(NOMODIFY" $opts")"
+ if rc<>0 then return SdsfErr()
+ c='do n=1 to' value(word($fields,1)'.0')';queue'
+ upper $fields
+ do n=1 to words($fields)
+   w=word($fields,n)
+   if w='RETCODE' then f='space(RETCODE.n,0)'
+   else f=w'.n'
+   if \$compact then do
+     if w='DSNAME' then f='left('w'.n,44)'
+     else if wordpos(w,'JNAME DDNAME OWNERID')>0 then f='left('f',8)'
+     else if wordpos(w,'QUEUE RETCODE')>0 then f='left('f',9)'
+   end
+   c=c f
+ end
+ c=c';end'
+ interpret c
+ return 0
+
+/*----+----1----+----2----+----3----+----4----+----5----+----6----+
+  CBT       2023128  10:38:42.79             ISF031I CONSOLE   */
+SysCmd:  /* issue system command */
+ if $opts<>'' then $opts='('$opts')'
+ address SDSF "ISFSLASH '"subword($@cmd,2)"'" $opts
+ if rc<>0 then return SdsfErr()
+ if datatype(isfulog.0)='NUM' then,
+ lastid=''
+ do n=1 to isfulog.0
+   if n=1 & word(isfulog.n,4)='ISF031I' then iterate
+   if $nopfx then queue substr(isfulog.n,44)
+   else if left(isfulog.n,1)<>' ' then do
+     lastid=left(isfulog.n,30)
+     queue isfulog.n
+   end
+   else queue overlay(lastid,isfulog.n,1)
+ end
+ return 8
+
+SdsfErr:
+ trace off
+ say 'Sdsf' cmd 'rc' rc isfmsg
+ do n=1 to isfmsg2.0
+   say isfmsg2.n
+ end
+ return 8
+
+XMsg: if arg(1)<>'' then say arg(1);return word(arg(2) 0,1)
+
+exit 0
+Call rexxvars 'list var($*)'

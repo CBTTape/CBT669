@@ -1,0 +1,54 @@
+/*                                                                  rexx
+
+ Edit contents of a pool.
+
+ The argument is the pool name, i.e. %RXGVPED my_test_pool
+
+ The sample recommends that the STEMEDIT command is available. The program
+ can be obtained from www.cbttape.org file 183.
+ Panel RXGVPED# must be available through ISPPLIB concatenation or LIBDEF.
+
+ Screen format is the variable name, at least one blank and the data.
+
+ Notes
+  Variables starting with '__' are considered variables internal
+  to this program and are dropped when the pool is saved.
+  The pool is replaced if the dialog is not ended by a CANcel command.
+
+*/
+
+ arg __pool
+ __pool=strip(__pool)
+
+ Address ispexec "control errors return"
+
+ zz=RexxGblv('list pool('__pool') nw(0) dw(0) liststem(__.)')
+
+ /* recommended STEMEDIT */
+ Call StemEdit 'edit','__.',,__.0,'Edit pool' __pool,'RXGVPED#',27994
+ address ispexec "vget zcmd shared"
+ if abbrev('CANCEL',strip(zcmd),3) then exit 8
+ exit Update(__pool)
+
+ /* alternate STEMEDIT */
+ cc=bpxwdyn('alloc new rtddn(zzzzdd) unit(vio) dsorg(ps)',
+    'lrecl(27994) recfm(v,b) blksize(0) tracks space(1,4)')
+ if cc<>0 then exit xmsg("alloc failed" cc)+12
+ "execio" __.0 "diskw" zzzzdd "(stem __. finis"
+ address ispexec "lminit dataid(ZZZZdid) ddname("zzzzdd")"
+ address ispexec "edit dataid("ZZZZdid") panel(RXGVPED#)"
+ address ispexec "vget zcmd shared"
+ if abbrev('CANCEL',strip(zcmd),3) then exit Bpxwdyn("free dd("zzzzdd")")*0
+ "execio * diskr" zzzzdd "(stem __. finis)"
+ zz=Bpxwdyn("free dd("zzzzdd")")
+ exit Update(__pool)
+
+Update: Procedure expose __.
+ do __i=1 to __.0
+   parse var __.__i __n __v
+   __=Value(strip(__n),strip(__v))
+ end
+ cc=RexxGblv('dropsave pool('arg(1)') var(-__*)')
+ Return 0
+
+XMsg:  if __pool<>'' then say __pool;return word(arg(2) 0,1)

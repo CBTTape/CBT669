@@ -1,0 +1,576 @@
+//RXOP008  JOB (1),'REXX-OPCOM-QEDIT',
+//*  RESTART=IVP1,
+//             CLASS=A,MSGCLASS=X,REGION=32M,COND=(0,LT)
+//*
+//  SET IVP=I008
+//  SET IVP=IVP1
+//*
+//* ?? RXOPCOMM - modify/stop operator command for REXX ? e ?
+//*
+//   EXEC ASMACL, XL,MACLIST=RXOPCOMM,
+//        PARM.C='TERM,RENT',
+//        PARM.L='LIST,AMODE(31),RMODE(ANY),RENT,REFR'
+//C.SYSLIB  DD DISP=SHR,DSN=SYS1.MACLIB
+//          DD DISP=SHR,DSN=SYS1.MODGEN
+//          DD DISP=SHR,DSN=CBT669.PP.RXOPCOMM.LIB
+//C.SYSTERM DD SYSOUT=*
+//C.SYSIN   DD *
+*Process compat(macrocase)
+**asma syslib *
+**asma opt    term
+*
+* RXOPCOMM - MODIFY/STOP operator command for REXX programs.
+*
+* General information
+*
+*  The program reads an outstanding modify or STOP command for the job.
+*  You may have up to 100 outstanding modifys before getting the 'TASK
+*  BUSY' message.
+*  You can retrieve one modify as return value, or up to 100 modifys
+*  in a stem.
+*
+* Build: 008.01
+*
+* New in this build
+*
+*  Command GETLIST - return responses in a stem.
+*  WTO option for INIT and TERM.
+*  GET will do an implicit INIT if this was not done previously.
+*
+* Fixed in this build
+*
+*  WTO option did not work.
+*
+* Changed in this build
+*
+*  WTO option H changed to P or J, H is retained for consistency.
+*
+* Syntax
+*
+*  cc=RXOPCOMM('INIT'Ý,'wto-text'Ý,wto-opt¨¨)
+*    Setup control blocks.
+*    INIT is not absolutely necessary as the GET will do an INIT if
+*    this hasn't been done. But it is good form to do INIT.
+*    See the WTO call below for details about the text and option.
+*
+*  cc=RXOPCOMM('TERM'Ý,'wto-text'Ý,wto-opt¨¨)
+*    Release control blocks
+*    TERM is not strictly necessary as the opsys will do cleanup after
+*    the job, but it good form to do TERM.
+*    See the WTO call below for details about the text and option.
+*
+*  cc=RXOPCOMM('GET'Ý,'wto-text'Ý,wto-opt¨¨)
+*    Check for response, return response text.
+*    Max response length is 255.
+*    Optionally issue a WTO before check.
+*    See the WTO call below for details about the text and option.
+*
+*  cc=RXOPCOMM('GETLIST',stemnameÝ,'wto-text'Ý,wto-opt¨¨)
+*    Returns outstanding MODIFYs in the named stem (which must end in a
+*    dot). 'stemname.0' holds the number of stem variables.
+*    The return code is 0 if no errors were encountered, even if no
+*    variables were set, but then 'stemname.0' is 0.
+*    See the WTO call below for details about the text and option.
+*
+*  cc=RXOPCOMM('WTO','wto-text'Ý,wto-opt¨)
+*    Issue a WTO.
+*    Options: P retains the text on the console permanently.
+*             J retains the text on the console till the job ends.
+*    For WTOS with option J or P, descriptor code 11 'Critical Eventual
+*    Action Required' is used.
+*
+*  r =RXOPCOMM('VERSION')
+*    Returns version info.
+*
+* Return codes m.m.
+*
+*  The program returns either
+*   A text containing the modify text. The variable RXOPCOMM_MORE = 'Y'
+*   if more queued responses.
+*   STOP if a P jobname was issued.
+*   Blank if no modify was outstanding.
+*   A error code plus an explanatory text in variable RXOPCOMM_REASON.
+*
+* Contact info
+*  email   willy@harders-jensen.com
+*  web     https://harders-jensen.com  (newest version here)
+*
+         lclc  &JPAQ
+&JPAQ    SETC  'Y'                     Retain module in the JPAQ
+*
+         print off
+         Copy  WSAMMacs
+         Copy  RexxMacs
+         Copy  SYSMACS
+*        COPY  Z10MACS
+         print on
+
+
+         Macro
+         SayIt &t
+         lcla  &tl
+         aif   (k'&t eq 0).go
+&tl      seta  (k'&t)-2
+         mvc   logr(&tl),=c&t
+.go      anop
+         RXSAY logr,l'logr,wrk=rxwork
+.x       clear logr
+         Mend
+
+         Macro
+         SubCall &name
+         l    r15,=v(&name)
+         balr  r14,r15
+         Mend
+
+* ------------------------------------------------------------------- *
+* Prolog                                                              *
+* ------------------------------------------------------------------- *
+         lclc  &$module,&version
+&version setc  '008.01'
+&$module setc  'RXOPCOMM'
+         #subr set,entry=csect,base=r11,saend=saend
+*
+&$module #module amode=31,rmode=31,base=r12,                           c
+               work=(lclstorl,lclstor,r10,C),sa=sa1,epilog=MainEpi,    c
+               text=' V&version'
+
+*- init storage
+         clear blank
+         mvc   action,blank
+         mvc   reason,blank
+         mvc   zero8,=8c'0'
+         mvc   logr,blank
+         mvc   retval,blank
+         mvlit retval,'00000000'
+         mvc   retvall,=a(8)
+         xc    parmv(parmvn-parmv),parmv
+         mvi   more,c'N'
+         mvc   NtName,=cl8'&$module'
+         mvc   NtName2,blank
+         la    r1,l'logr
+         sll   r1,16
+         st    r1,logrwto
+
+         aif   ('&JPAQ' ne 'Y').jpaqn
+*-
+* Keep module in JPAQ for duration of job / TSO session  (change 005)
+* Ignored if module is loaded from the LPA.
+*-
+*        CDEUCTZ2 dsect=N
+
+.jpaqn   anop
+*-
+* Initialize REXX interfaces
+*-
+         ereg  0,1
+         RxInit parmvect=(parmv,4)    Each parmpair is addr,length
+*log parm list
+*        la    r7,parmv
+*        rxSay 'Parmlist...'
+*        Do from=(r8,3)
+*          if    (zero,eq,0(r7)),then=leave
+*          RxSay f.0(r7),f.4(r7)
+*          la    r7,8(,r7)
+*        Enddo
+*        rxSay 'Parmlist done'
+*        sayit 'init done'
+
+* get and check parm 1 - action
+* sayit 'p1'
+         lm    r14,r15,parmv           address and length
+         if    (ltr,r15,r15,z),or,(cfi,r15,gt,l'action)
+           mvc  rc,=al2(8)
+           $cvd  r15,reason+14,len=4
+           mvlit reason,'parm 1 length'
+           #module exit
+         endif
+         lr    r3,r15
+         bctr  r15,0
+         mvc   action(*-*),0(r14)
+         ex    r15,*-6
+         oc    action,blank
+
+         la    r2,actlist
+         do    until,(cli,0(r2),eq,255)
+           if    (clc,action,eq,0(r2))
+             leave
+           endif
+           la    r2,actlistl(,r2)
+         enddo
+
+         if    (cli,0(r2),eq,255)
+           mvlit reason,'invalid action'
+           mvc  rc,=al2(11)
+           #module exit
+         endif
+*-
+* perform action
+*-
+*sayit 'call'
+         l     r15,actlistnl(,r2)
+         balr  r14,r15
+         #module exit
+
+*-
+*              end of module processing
+*-
+MainEpi  #subr label
+         RxVPut name='&$module._REASON',data=(reason,l'reason)
+         RxVPut name='&$module._MORE',data=(more,1)
+
+         if    (rc,ne,zero)
+           lh   r1,rc
+           $cvd  r1,retval,len=8
+         endif
+
+         RxRetval retval,f.retvall
+         #subr end
+
+*-
+*              fixed data
+*-
+
+zero     dc    a(0)
+actlist  dc    cl8'INIT',v(init)
+actlistnl equ   8
+actlistl  equ   12
+         dc    cl8'GET',v(get)
+         dc    cl8'GETLIST',v(getlist)
+         dc    cl8'TERM',v(term)
+         dc    cl8'WTO',v(WTO)
+         dc    cl8'VERSION',v(version)
+         dc    al1(255)
+
+         ltorg
+
+*-
+*        Command VERSION - return version info
+*-
+
+Version  #subr
+*        sayit 'Version'
+         mvc   retval(l'vertext),vertext
+         mvc   retvall,=a(l'vertext)
+         #subr exit
+
+         gblc  &eurclock
+         EurDate
+VerText  dc    c'&$module &version &eurclock'
+         #subr drop
+
+*-
+*        Command INIT - initialize
+*-
+INIT     #subr
+* sayit 'init'
+
+* is there an N/T block already?
+         NTSERVX rt,n=NtName,t=NtToken,l=home,rc=NtRc,pl=NtParms
+         if   (clc,ntrc,ne,zero)      nope
+*   get storage
+           la    r9,qedblkl
+           STORAGE OBTAIN,LENGTH=(9),SP=131,CALLRKY=YES
+           st    r1,NtTokAdr            address
+           st    r9,NtTokSiz            size
+           lr    r8,r1
+*   make NT
+           NTSERVX  cr,n=NtName,t=NtToken,l=home,rc=NtRc,pl=NtParms
+           if    (clc,ntrc,ne,zero)
+             l     r15,ntrc
+             $cvd  r15,reason+17,len=8
+             mvlit reason,'NT create failed'
+             mvc   rc,=al2(8)
+             #subr exit,rc=8
+           endif
+         endif
+
+* setup QEDIT request
+         Using  qedblk,r8
+         OPCOMM INIT,NUM=100
+         drop  r8
+
+*- WTO text (parm 2) ?
+         if    (zero,ne,parmv2),then=(subcall,WTO)
+
+         #subr exit
+         #subr drop
+
+*-
+*        Command TERM - Release buffers
+*-
+TERM     #subr
+*        sayit 'drop'
+         NTSERVX rt,n=NtName,t=NtToken,l=home,rc=NtRc,pl=NtParms
+         if    (clc,ntrc,ne,zero)
+           l     r15,ntrc
+           $cvd  r15,reason+25,len=8
+           mvlit reason,'TERM - locate NT failed'
+           mvc   rc,=al2(8)
+*          sayit 'not found'
+           #Subr exit,rc=8
+         endif
+*-storage
+         l     r3,NtTokAdr
+         l     r4,NtTokSiz
+         STORAGE RELEASE,LENGTH=(4),ADDR=(3),SP=131,CALLRKY=YES
+*-N/T
+         NTSERVX dl,n=NtName,rc=NtRc,pl=NtParms
+         if    (clc,ntrc,ne,zero)
+           l     r15,ntrc
+           $cvd  r15,reason+25,len=8
+           mvlit reason,'TERM - delete NT failed'
+           mvc   rc,=al2(8)
+           #subr exit,rc=8
+         endif
+*        cvxd  in=ntrc,out=logr+20,len=4
+*        sayit 'drop ntrc'
+
+*- WTO text (parm 2) ?
+         if    (zero,ne,parmv2),then=(subcall,WTO)
+
+         #subr exit
+         #subr drop
+
+*-
+*        Command GET - Return text
+*-
+GET      #subr
+* sayit 'get'
+         NTSERVX rt,n=NtName,t=NtToken,l=home,rc=NtRc,pl=NtParms
+         if    (ntrc,ne,zero)
+           #subr call,INIT             implicit INIT
+           if    (ntrc,ne,zero)
+             l     r15,ntrc
+             $cvd  r15,reason+24,len=8
+             mvlit reason,'GET - locate NT failed'
+             mvc   rc,=al2(8)
+             #subr exit,rc=8
+           endif
+         endif
+
+         l     r9,NtTokAdr
+         using qedblk,r9
+         clear qedrespd
+         xc    qedrespl,qedrespl
+         OPCOMM GET,MAREA=qedresp
+
+*- set variable for more in response queue
+         if    (cli,qedrespd,ne,c' '), only if there was one           c
+               and,(ltr,r0,r0,nz),then=(mvi,more,c'Y')
+
+*- setup return value=response
+         la    r4,qedrespd
+         lh    r5,qedrespl
+         st    r5,retvall
+         if    (ltr,r5,r5,nz)
+           bctr  r5,0
+           mvc   retval(*-*),0(r4)
+           ex    r5,*-6
+           #subr exit
+         endif
+
+*- WTO text (parm 2) ?
+         if    (zero,ne,parmv2),then=(subcall,WTO)
+
+*- section end
+         #subr exit
+         #subr drop
+
+*-
+*        Command GETLIST - Return text line(s) in a stem
+*-
+GETLIST  #subr
+* sayit 'get'
+         lm    r2,r3,parmv2            stemname addr,length
+         if    (ltr,r2,r2,z),or,(ltr,r3,r3,z)
+           mvlit reason,'GETLIST missing stemname'
+           mvi   retval+7,c'8'
+           #subr exit,rc=8
+         endif
+         xc    parmv2,parmv2          prevent WTO in GET
+
+         st    r3,stemnml
+         bctr  r3,0
+         j     *+10
+         mvc   stemname(*-*),0(r2)     copy name
+         ex    r3,*-6
+         j     *+10
+         oc    stemname(*-*),blank     upcase name
+         ex    r3,*-6
+         zap   stemnum,=p'0'           counter
+         Do    Forever
+           SubCall GET
+           if    (rc,ne,zero),then=(#subrend)
+           if    (retvall,eq,zero),then=leave
+* add to stem
+           ap    stemnum,=p'1'           counter
+           RXStemPut name=wrk256,base=(stemname,f.stemnml),            c
+               pnum=stemnum,data=(retval,f.retvall)
+           if    (cli,more,ne,c'Y'),then=(leave) last
+         Enddo
+
+* set stem.0
+         unpk  dw,stemnum
+         oi    dw+l'dw-1,x'F0'
+         RXStemPut name=wrk256,base=(stemname,f.stemnml),              c
+               num=0,data=(dw,l'dw)
+
+*- WTO text (parm 3) ?
+         if    (zero,ne,parmv3)        WTO is 3rd parm
+            mvc   parmv2(16),parmv3    copy 3rd+4th parm to 2nd (text)
+            subcall WTO
+         endif
+
+*- section end
+         mvc   retval,=8c'0'
+         mvc   retvall,=a(8)
+         #subr exit
+         #subr drop
+
+*-
+*        Command WTO - issue WTO
+*-
+WTO      #subr
+*        sayit 'WTO entered'
+
+*- the WTO text is described by the 2nd parameter set
+         lm    r4,r5,parmv2            p2 address and length
+         if    (ltr,r4,r4,z)
+           mvlit reason,'WTO - no data'
+           mvi   retval+7,c'8'
+           #subr exit,rc=8
+         endif
+         if    (ltr,r5,r5,z),or,(clfi,r5,gt,126)
+           StrMake reason,'WTO - text length ',(r5,,cvdr,4)
+           mvi   retval+7,c'8'
+           #subr exit,rc=8
+         endif
+*- build prefix
+         la    r15,4(,r5)            plus prefix
+         sll   r15,16
+         st    r15,wrk256
+*- get text
+         lr    r15,r5
+         bctr  r15,0
+         j     *+10
+         mvc   wrk256+4(*-*),0(r4)
+         ex    r15,*-6
+*- set wto type
+         lm    r4,r5,parmv3          wto option - address, length
+         if    (ltr,r4,r4,nz)        any??
+           mvc   fw(1),0(r4)
+           oi    fw,c' '             upcase
+           la    r15,wrk256+4        -> past prefix
+           a     r15,parmv2+4        add text length
+           Select
+             when  (cli,fw,eq,c'P'),or,(cli,fw,eq,c'H') permanent
+               mvc   0(4,r15),=x'00204000' suffix for desc=(11)
+               oi    wrk256+2,x'80'  mcsflags
+             endwhen
+             when  (cli,fw,eq,c'J')  keep till job end
+               mvc   0(4,r15),=x'02204000' suffix for desc=(7,11)
+               oi    wrk256+2,x'80'    mcsflags
+             endwhen
+             when other
+               mvlit reason,'WTO - bad option'
+               mvi   retval+7,c'8'
+               #subr exit,rc=8
+             endwhen
+           endselect
+         endif
+*- issue wto
+         la    r1,wrk256
+         sr    r0,r0
+         svc   35
+*
+         #subr exit
+         #subr drop
+
+*-
+*        dynamic area
+*-
+LclStor  Dsect
+sa1      ds    18f                     save area
+sa2      ds    18f                     save area
+sa3      ds    18f                     save area
+sa4      ds    18f                     save area
+saend    equ   *
+*-
+blank    ds    cl140
+reason   ds    cl100
+retval   ds    cl120
+retvall  ds    a
+more     ds    c
+parmv    ds    (4*2)a                  room for 4 parameters
+parmvn   ds    0a
+parmv1   equ   parmv+0,8
+parmv2   equ   parmv+8,8
+parmv3   equ   parmv+16,8
+parmv4   equ   parmv+24,8
+action   ds    cl8
+suba     ds    a
+NtParms  ds    0a(0),xl(20+32)
+ntLevel  ds    a
+NtId     ds    0cl16
+NtName   ds    cl8
+NtName2  ds    cl8
+         ds    0d
+NtToken  ds    xl16
+         org   NtToken
+NtTokAdr ds    a
+NtTokSiz ds    a
+NtTokRln ds    a
+         org
+NtRc     ds    a
+p2def    ds    2a
+Lendef   ds    2a
+Datadef  ds    2a
+
+rc       ds    h
+zero8    ds    cl8
+         ds    0a
+fw       ds    f
+dw       ds    d
+logrwto  ds    a
+logr     ds    cl120
+stemnml  ds    a
+stemname ds    cl140                   must have same length as blank
+stemnum  ds    pl4
+         RexxMacs ds
+wrk256   ds    cl256
+*-
+LclStorL equ   *-LclStor
+
+         IeaNtAsm
+
+         RexxMacs dsect
+*-QEDIT block
+QEDBLK   dsect
+qedresp  ds    0cl100
+qedrespl ds    xl2
+qedrespd ds    cl98
+*-
+         OPCOMM ds
+         ds    0d
+qedblkl  equ   *-qedblk
+*-
+         OPCOMM dsect
+         Print  nogen
+         IHACDE ,                     used by CDEUCTZ2
+         IHAPSA DSECT=YES             used by CDEUCTZ2
+         IkjTcb ,                     used by CDEUCTZ2
+*-
+         END
+//*
+//L.SYSLMOD DD DSN=CBT669.LINKLIB(RXOPCOMM),DISP=SHR
+//*
+//* Activate dynamic if in lpalib:
+//*   SETPROG LPA,ADD,MODNAME=RXOPCOMM,DSNAME=CBT669.LINKLIB
+//*
+//IVP1     EXEC PGM=IKJEFT1B,PARM='RXOP&IVP'
+//SYSEXEC  DD DISP=SHR,DSN=CBT669.PP.RXOPCOMM.LIB
+//STEPLIB  DD DISP=SHR,DSN=CBT669.LINKLIB
+//SYSTSPRT DD SYSOUT=*,OUTLIM=2000
+//SYSTSIN  DD DUMMY
+//*

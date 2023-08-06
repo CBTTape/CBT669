@@ -1,0 +1,98 @@
+REXX function - MODIFY/STOP operator command for REXX programs.
+
+Current build: 008
+
+General information
+
+ The program reads an outstanding modify or STOP command for the job.
+ You may have up to 100 outstanding modifys before getting the 'TASK
+ BUSY' message.
+ You can retrieve one modify as return value, or up to 100 modifys
+ in a stem.
+
+Syntax
+
+ cc=RXOPCOMM('INIT'Ý,'wto-text'Ý,wto-opt¨¨)
+   Setup control blocks.
+   INIT is not absolutely necessary as the GET will do an INIT if
+   this hasn't been done. But it is good form to do INIT.
+   See the WTO call below for details about the text and option.
+
+ cc=RXOPCOMM('TERM'Ý,'wto-text'Ý,wto-opt¨¨)
+   Release control blocks
+   TERM is not strictly necessary as the opsys will do cleanup after
+   the job, but it good form to do TERM.
+   See the WTO call below for details about the text and option.
+
+ cc=RXOPCOMM('GET'Ý,'wto-text'Ý,wto-opt¨¨)
+   Check for response, return response text.
+   Max response length is 255.
+   Optionally issue a WTO before check.
+   See the WTO call below for details about the text and option.
+
+ cc=RXOPCOMM('GETLIST',stemnameÝ,'wto-text'Ý,wto-opt¨¨)
+   Returns outstanding MODIFYs in the named stem (which must end in a
+   dot). 'stemname.0' holds the number of stem variables.
+   The return code is 0 if no errors were encountered, even if no
+   variables were set, but then 'stemname.0' is 0.
+   See the WTO call below for details about the text and option.
+
+ cc=RXOPCOMM('WTO','wto-text'Ý,wto-opt¨)
+   Issue a WTO.
+   Options: P retains the text on the console permanently.
+            J retains the text on the console till the job ends.
+   For WTOS with option J or P, descriptor code 11 'Critical Eventual
+   Action Required' is used.
+
+Return codes m.m.
+
+ The program returns either
+  A text containing the modify text. The variable RXOPCOMM_MORE = 'Y'
+  if more queued responses.
+  STOP if a P jobname was issued.
+  Blank if no modify was outstanding.
+  A error code plus an explanatory text in variable RXOPCOMM_REASON.
+
+Samples
+
+ cc=RXOPCOMM('INIT')
+ if cc<>0 then exit 20
+ cc=RXOPCOMM('WTO','OPCOMM initialization complete')
+ wtotext='Enter command'
+ Do $main=1 to 999 until rs='STOP'
+   rs=RXOPCOMM('GET',wtotext)
+   Select
+     when datatype(cc)='NUM' & cc<>0 then do
+       say 'RXOPCOMM error rc' rs RXOPCOMM_REASON
+       exit 8
+     end
+     when rs='' then do
+       wtotext=''
+       call syscalls 'ON'         /* wait  */
+       address syscall 'sleep' 2  /* 2     */
+       call syscalls 'OFF'        /* secs  */
+     end
+     when rs='something-else' then do
+     end
+     Otherwise cc=RXOPCOMM('WTO','OPCOMM invalid command:' rs)
+   end
+ end
+ cc=RXOPCOMM('TERM')
+ cc=RXOPCOMM('WTO','OPCOMM ended')
+
+ /* get all outstanding modyfys */
+ do until RXOPCOMM_MORE<>'Y'
+   rs=RXOPCOMM('GET')
+ end
+
+Members
+ RXOPDOC  - this member
+ RXOPCOMM - install program
+ RXOPIVP* - installation verification / sample program
+ SYSMACS  - local assembler macros used in the program
+
+Installation notes
+ RXOPCOMM is fully reentrant so can and should be in the LPA.
+ If not, it will reload itself once to remain in the LPA - you
+ can disable this behaviour by changing the JPAQ option at the
+ top of the source.

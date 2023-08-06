@@ -1,0 +1,74 @@
+ /*                                                                 rexx
+ IVP for build 008
+ */
+
+ say 'Version:' RXOPCOMM('version')
+ say ''
+ jbn = mvsvar('symdef','jobname')
+ maxrc=0
+ cmdn=0
+ dcmn=0
+ rspn=0
+ do n=1 to 20      /* prep some test cases */
+   text.n='TEST PROMPT' n
+ end
+ zz=isfcalls('ON')
+
+ /* 3 modifys + getresps */
+ say '3 modifys + getresp'
+ do n=cmdn+1 to cmdn+3
+   Call DoMfy text.n
+   Call DoGet text.n
+ end
+ exit 0
+
+ cc=RxOpComm('WTO','Test held message','J')
+ exit 0
+
+ /* initialize           */
+ cc=RxOpComm('INIT','OPCOMM initialized')
+ if cc<>0 then exit xmsg('INIT failed rc' cc rxopcomm_reason)+8
+ zz=isfcalls('ON')
+
+ /* 4 modifys, then getlist  */
+ say '4 modifys, then getlist'
+ say 'command....'
+ do n=cmdn+1 to cmdn+4
+   Call DoMfy text.n
+ end
+
+ say 'getlist....'
+ cc=RxOpComm('GETLIST','opclist.')
+ if cc<>0 then exit xmsg('GETLIST failed rc' cc rxopcomm_reason)+8
+ zz=RexxGblv('rlist var(opc*)')
+ say ''
+
+ /* complete */
+ cc=RxOpComm('TERM','OPCOMM terminated')
+ if cc<>0 then exit xmsg('TERM failed rc' cc rxopcomm_reason)+8
+ Exit xmsg(time() 'Done')
+
+DoMfy: Return DoCmd('F' jbn','arg(1))
+DoCmd:
+ parse arg dccmd
+ dcmn=dcmn+1
+ say time() 'Command: ' dccmd
+ Address SDSF ISFSLASH "'"dccmd"'"
+ l=value('isfulog.'isfulog.0)
+ if wordpos('IEE342I',l)=0 then return 0
+ say '**log->' l
+ maxrc=max(maxrc,8)
+ return 0
+DoGet:
+ cc=RXOPCOMM('GET')
+ say time() 'Response:' cc 'more:' RXOPCOMM_MORE
+ if datatype(cc)='NUM' & cc<>0 then,
+   exit xmsg('Rc' cc RXOPCOMM_REASON)+8
+ if cc=arg(1) then do
+   rspn=rspn+1
+   return 0
+ end
+ say '**Bad response, expected was:' arg(1)
+ maxrc=max(maxrc,8)
+ return 0
+XMsg: if arg(1)<>'' then say time() arg(1);return word(arg(2) 0,1)

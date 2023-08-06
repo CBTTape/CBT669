@@ -1,0 +1,231 @@
+REXX function - Test a string or stem against a pattern
+
+General description
+
+ REXX function to
+  -  Test a string against a pattern
+  -  Test a stem against a pattern
+  -  Filter a stem using a pattern
+   The pattern may be a value, be in a variable or be in a stem.
+
+Build: 009
+
+ New in this build
+  -  Major rewrite, all output stems parameters are changed and a
+     couple are added.
+
+ Changed in this build
+
+ Fixed in this build
+
+
+Syntax
+
+ Format 1. Scan string.
+
+   rc = RxPattrn(string,pattern,wildcard,'T')
+
+   Parameters
+    string    just a string
+    pattern   the pattern to test against, or preprocess
+    wildcard  2 chars for zero-or-none and one-char test.
+              Optional, default is '*%'.
+    T         trace process.
+
+ Format 2. Scan or filter stem.
+
+   rc = RxPattrn(command-string)
+
+   Command-string:
+    STEM(stem-name)     Input stem. Name including trailing dot has
+                        max length of 100 bytes.
+    MATCH(stem-name)    Create stem with matched records.
+    NOMATCH(stem-name)  Create stem with not-matched records.
+    MATRIX(stem-name)   Build stem with match/nomatch indicators, (see
+                        the MCHR and NCHR parameters). The characters
+                        are in pos 1.
+    OVERLAY(stem-name)  Build stem with match/nomatch indicators (see
+                        the MCHR and NCHR parameters) overlaying the
+                        original data record.
+    MASK(mask)          Mask (pattern). See above. Can be a list, if
+                        the MDLM parameter is also used. Max length is
+                        200 bytes.
+    MASKVAR(name)       The mask is in a variable. the format of the
+                        variable is as for the 'MASK'
+    MASKSTEM(name)      Multiple masks in a stem. Each stem element
+                        may hold only one mask.
+    MDLM(c)             Mask delimiter, when more than one mask. Masks
+                        are ORed. Sample: mask(*LIB*,*ALL*) mdlm(,)
+    MCND(cond)          Define condition A (AND) or O (OR) for test of
+                        multiple masks. Default is Or.
+    POS(start)          Position in input to start test.
+    LEN(length)         Length of area in input to test. This will be
+                        adjusted if the input data is too short.
+    MCHR(match-chr)     Char to use for matching data.
+    NCHR(nomatch-chr)   Char to use for not matching data.
+    OVLPOS(chr-pos)     Store (no)matchchr in this position in the
+                        overlay stem.
+    MPOS(pos)           Store matchchr in this position.
+    NPOS(pos)           Store no-matchchr in this position.
+    WILDCD(ao)          any or zero, and one. default is '*%'.
+    TRACE               Trace process.
+   Notes
+     -  Any of the output stems could be the same as the input stem,
+        just note that variables are not deleted, so if you have stem
+        TEXT.1 to TEXT.100, you specify STEM(TEXT.) and MATCH(TEXT.)
+        and the filter drops 50 records, you will still have TEXT.51
+        to TEXT.100, but TEXT.0 will be set to 50.
+
+ Return
+   0   ok
+   1   pattern not match
+   2   missing string
+   3   missing pattern
+   4   invalid wildcard length
+
+   -  if rc gt 1 then variable RXPATTRN_RS contains a reason text.
+   -  the variable RXPATTRN_MATCH contains the number of matches.
+
+
+Some samples
+
+ By string
+
+  Text                           Pattern  Wildcd  rc reaseon
+  IEFBR14                        %%%BR*           00
+  IEFBR14                        ???BR#   #?      00
+  IEFBR14                        IEFB*            00
+  IEFBR14                        IEFBR14*         00
+  Kilroy was here some time ago  %%%BR*           01
+  Kilroy was here some time ago  *her*            00
+  string names Gandalf and Frodo *not*            01
+  string names Gandalf and Frodo *nam*            00
+                                 *nam*            02 Missing string
+  string names Gandalf and Frodo                  03 Missing pattern
+
+ By stem
+
+  test.1  ='DDIR.I                    '
+  test.2  ='HFS                       '
+  test.3  ='BACKUP.ALL                '
+  test.4  ='BACKUP.ALL.TRS            '
+  test.5  ='DFH410.CICS.DFHGCD        '
+  test.6  ='DFH410.CICS.DFHGCD.DATA   '
+  test.7  ='KG.DATA                   '
+  test.8  ='HCD.TRACE                 '
+  test.9  ='LIB.LINKLIB               '
+  test.10 ='DCOL.DATASET.REPORT       '
+  test.11 ='LIB.DOCLIB                '
+  test.12 ='LIB.MACLIB                '
+  test.13 ='DCOLLECT.BYVOL            '
+  test.14 ='DCOLLECT.DATA             '
+  test.15 ='DATADICT.EXPORT           '
+  test.16 ='DCOLLECT.JCL              '
+  test.17 ='DCOLLECT.LIB              '
+  test.18 ='LIB.EXEC                  '
+  test.19 ='DEZHI.EXEC                '
+  test.20 ='HCD.MSGLOG                '
+  test.21 ='DEZHI.ISPMLIB             '
+  test.22 ='DEZHI.ISPPLIB             '
+  test.23 ='LIB.CLIST                 '
+  test.24 ='JCL.XML                   '
+  test.25 ='DASDVOL.REPORT            '
+  test.26 ='DEZHI.LOAD                '
+  test.27 ='DEZHI.MACLIB              '
+  test.0  =27
+  cc = RxPattrn('stem(test.) matrix(result.)',
+       'mask(*LIB*) pos(5) len(12) mchr(+) nchr(-)')
+  do n=1 to test.0
+    say 'test.'left(n,2) left(test.n,30) 'result.'left(n,2) result.n
+  end
+
+  will show:
+
+   test.1  DDIR.I                         result.1  -
+   test.2  HFS                            result.2  -
+   test.3  BACKUP.ALL                     result.3  -
+   test.4  BACKUP.ALL.TRS                 result.4  -
+   test.5  DFH410.CICS.DFHGCD             result.5  -
+   test.6  DFH410.CICS.DFHGCD.DATA        result.6  -
+   test.7  KG.DATA                        result.7  -
+   test.8  HCD.TRACE                      result.8  -
+   test.9  LIB.LINKLIB                    result.9  +
+   test.10 DCOL.DATASET.REPORT            result.10 -
+   test.11 LIB.DOCLIB                     result.11 +
+   test.12 LIB.MACLIB                     result.12 +
+   test.13 DCOLLECT.BYVOL                 result.13 -
+   test.14 DCOLLECT.DATA                  result.14 -
+   test.15 DATADICT.EXPORT                result.15 -
+   test.16 DCOLLECT.JCL                   result.16 -
+   test.17 DCOLLECT.LIB                   result.17 +
+   test.18 LIB.EXEC                       result.18 -
+   test.19 DEZHI.EXEC                     result.19 -
+   test.20 HCD.MSGLOG                     result.20 -
+   test.21 DEZHI.ISPMLIB                  result.21 +
+   test.22 DEZHI.ISPPLIB                  result.22 +
+   test.23 LIB.CLIST                      result.23 -
+   test.24 JCL.XML                        result.24 -
+   test.25 DASDVOL.REPORT                 result.25 -
+   test.26 DEZHI.LOAD                     result.26 -
+   test.27 DEZHI.MACLIB                   result.27 +
+
+  cc = RxPattrn('stem(test.) overlay(test.)',
+       'mask(*LIB*) mchr(+) nchr(-) mpos(2) npos(4)')
+  do n=1 to test.0
+    say 'test.'left(n,2) test.n
+  end
+
+  will show:
+
+   test.1  DDI-.I
+   test.2  HFS
+   test.3  BAC-UP.ALL
+   test.4  BAC-UP.ALL.TRS
+   test.5  DFH-10.CICS.DFHGCD
+   test.6  DFH-10.CICS.DFHGCD.DATA
+   test.7  KG.-ATA
+   test.8  HCD-TRACE
+   test.9  L+B.LINKLIB
+   test.10 DCO-.DATASET.REPORT
+   test.11 L+B.DOCLIB
+   test.12 L+B.MACLIB
+   test.13 DCO-LECT.BYVOL
+   test.14 DCO-LECT.DATA
+   test.15 DAT-DICT.EXPORT
+   test.16 DCO-LECT.JCL
+   test.17 D+OLLECT.LIB
+   test.18 L+B.EXEC
+   test.19 DEZ-I.EXEC
+   test.20 HCD-MSGLOG
+   test.21 D+ZHI.ISPMLIB
+   test.22 D+ZHI.ISPPLIB
+   test.23 L+B.CLIST
+   test.24 JCL-XML
+   test.25 DAS-VOL.REPORT
+   test.26 DEZ-I.LOAD
+   test.27 D+ZHI.MACLIB
+
+
+Installation notes
+
+  The program will by default reload itself thus retaining the module
+ in the JPAQ. This improves performance for multiple calls
+ significantly. This load will not be done if the program is added to
+ the LPA, which is the recommended placement.
+  You can disable the self-load option by removing the 'CDEUCTZ2'
+ statement.
+
+ Small test of RXPATTRN in a REXX pgm, scan 36 records 100 times.
+
+                        EXCP   CONN    TCB
+  CDEUCTZ2 disabled     7284      0   1.35
+  CDEUCTZ2 enabled        90      0    .09
+  Running from LPA        51      0    .14
+
+ Member RXPATTRX is an alternate REXX pgm to do pattern matching, in
+ case you do not not want to install RXPATTRN. It probably would not
+ increase the EXCP values, but the cpu- and elaps times might very
+ well go throuh the roof.
+
+
+See SYS1.MODGEN(ASAXWC) for details about the ASAXWC syntax

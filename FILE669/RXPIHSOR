@@ -1,0 +1,76 @@
+/*                                                                   rexx
+ RXPIPE Heapsort command
+ Sort stack using heap sort
+ Note that numeric values are sorted numerically, i.e. 0009 > 5
+
+ Syntax: SORT Ýpos,len¨
+*/
+ parse value translate(arg(1),' ',',') with $pos $len .
+ if $pos='VERSION' then exit '001' /* used for test of availability */
+ /*say 'sort pos='$pos 'len='$len 'qn='queued()*/
+
+ sort.0=queued()
+ do n=1 to sort.0
+   parse pull sort.n
+ end
+ Call HeapSort arg(1)
+ do n=1 to sort.0
+   queue sort.n
+ end
+ Return 0
+
+/* HeapSort specifying sort field start,length */
+Heapsort:
+ m = 0+sort.0
+ n = m
+ do k=m % 2 to 1 by -1
+   if $pos<>'' then call DownHeap2 k n
+   else             call DownHeap1 k n
+ end /* do */
+ do while n>1
+   t = sort.1
+   sort.1 = sort.n
+   sort.n = t
+   n = n-1
+   if $pos<>'' then call DownHeap2 1 n
+   else             call DownHeap1 1 n
+ end /* do */
+ return 0
+
+DownHeap1: PROCEDURE expose sort.           /* subroutine of HeapSort */
+ parse Arg k n
+ v = sort.k
+ do while k <= n%2
+   j = k+k
+   if j < n then do
+     i = j+1
+     if sort.j < sort.i then j=j+1
+   end  /* do */
+   if v >= sort.j then do
+     sort.k = v
+     return
+   end
+   sort.k = sort.j
+   k = j
+ end /* do */
+ sort.k = v
+ return
+
+DownHeap2: PROCEDURE expose sort. $pos $len /* subroutine of HeapSort */
+ parse Arg k n
+ v = sort.k
+ do while k <= n%2
+   j = k+k
+   if j < n then do
+     i = j+1
+     if substr(sort.j,$pos,$len) < substr(sort.i,$pos,$len) then j=j+1
+   end  /* do */
+   if substr(v,$pos,$len) >= substr(sort.j,$pos,$len) then do
+     sort.k = v
+     return
+   end
+   sort.k = sort.j
+   k = j
+ end /* do */
+ sort.k = v
+ return

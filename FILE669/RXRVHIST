@@ -1,0 +1,17 @@
+Vers  Desc
+001   Initial
+002   new - copy stem to ISPF table and copy ISPF table to stem.
+          - Sort default. Sort default descending.
+003   fix - Abend S0C4 when duplicate varname
+      new - Internal sort if simple sort and total data sz lt 1/2GB
+          - APpend parm for append to numeric stem.
+004   new - Use the stack for input or output for COPY, SORT,
+            STEM2TBL and TBL2STEM.
+          - COUNT, LAST and SKIP options for LIST and COPY.
+      chg - Edit will now honor deleted records directly, so the old
+            feature with a minus sign in front of the name is dropped.
+005   fix - abend S0C7 when stem.0 does not contain a number.
+      chg - better explanation for parameter error.
+006   chg - suppress display of own variables, unless forced by the
+            SHow(SELF) option.
+007   fix - mask problem with 1 char after last asterix i.a. ABC*F

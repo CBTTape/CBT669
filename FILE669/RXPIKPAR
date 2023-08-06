@@ -1,0 +1,41 @@
+/* Parse string by keywords, return executable command.
+   If same name is found multiple times, the last one wins.
+   Syntax: r=KParse(string,verb-list,prefix,default)
+   Sample: $r = "dsn sys1.parmlib when pos('howdy',w1)>0",
+                "build w1 left(w2,8) retain"
+           Interpret KParse($r,'build dsn when retain','@',1)
+                               "'@',1))
+           returns:
+            @BUILD   = w1 left(w2,8)
+            @DSN     = sys1.parmlib
+            @RETAIN  = 1
+            @WHEN    = pos('howdy',w1)>0
+*/
+ trace off
+ parse value '020406'x with eor +1 bc +1 qc +1 rtn
+ parse arg rec,kwl,pfx,dflt
+ if rec='' then return "rc=0;err=''"
+ rec=rec eor                                /* add eor marker */
+ kwl=translate(kwl) eor                     /* keyword list */
+ /* translate blanks to 04x inside quotes, then quotes to 06x */
+ do forever
+   ps=pos("'",rec)                          /* quote start     */
+   if ps=0 then leave
+   pe=pos("'",rec,ps+1)                     /* quote end       */
+   if pe=0 then return "rc=8;err='Missing end quote'"
+   rec=overlay(translate(substr(rec,ps,pe-ps+1),bc||qc," '"),rec,ps)
+ end
+ /* do split */
+ do while word(rec,1)<>eor                  /* find keyword match */
+   do n=2 to words(rec)
+     w=translate(word(rec,n))
+     if wordpos(w,kwl)>0 then leave
+   end
+   p=wordindex(rec,n)
+   parse var rec vrb data =(p) rec
+   if data='' then data=dflt
+   upper vrb
+ /*if wordpos(vrb,kwl)=0 then return "rc=8;err='Unknown keyword" vrb"'"*/
+   rtn=rtn";"pfx||vrb"="""strip(data)""""
+ end
+ return "rc=0;err='';"translate(rtn," '",bc||qc)

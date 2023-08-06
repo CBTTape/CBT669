@@ -1,0 +1,68 @@
+/*                                                                 rexx
+ Test (IVP) the REXXVARS program
+*/
+ say 'Version:' RexxVars('VERSION')
+ /* */
+ Call MkTextw
+ say 'Show default'
+ cc=RexxVars('list var(*)')
+ say 'Show with self'
+ cc=RexxVars('list var(*) sh(self)')
+ /* */
+
+ /* ok */
+ zz=Quit('All ok')
+
+Err1:
+ say 'Error' rc 'in line' sigl':' "ERRORTEXT"(rc)
+ say "SOURCELINE"(sigl)
+ say 'Record read:' rec
+ call quit ,20
+
+Quit:
+ address tso "delstack"
+ if arg(1)<>'' then say arg(1)
+ zispfrc=word(arg(2) 0,1)
+ address ispexec "vput zispfrc shared"
+ exit 0
+
+TestRxrv: /* run test */
+trace off
+ say ''
+ t=arg(1)
+ if arg(3)<>'' then t=t '-' arg(3)
+ say 'Testing ' t
+ cc=RunRxRv(arg(1))
+ say '->rc='cc 'gn='rexxvars_getn+0 'on='rexxvars_outn+0,
+     'rs='space(rexxvars_rsn) 'stat='rexxvars_stat
+ if rxv_getn<>0 then say '  compares per record='rxv_cmn/rxv_getn
+ if cc>word(arg(2) 0,1) then do
+   "delstack"     /* just in case */
+   testrc=8
+   zz=Quit('****Bad rc',8)
+ end
+ outn=rexxvars_outn
+ return cc
+
+RunRxRv: /* run pgm */
+ cc=REXXVARS(arg(1))
+ parse var rexxvars_stat . ' NAMEN('rxv_namen')' .,
+   0 . ' OUTN('rxv_outn')' . 0 . ' GETN('rxv_getn')' .,
+   0 . ' SORT('rxv_sort')' . 0 . ' DELN('rxv_deln')' .,
+   0 . ' CMN('rxv_cmn')' .
+ return cc
+XMsg: say arg(1);return word(arg(2) 0,1)
+
+TestBadParm: Procedure
+ Call MkTextw
+ Call TestRxrv 'list vars(wh*)',20
+ return 0
+
+TestBadStem0: Procedure
+ Call TestRxrv 'list var(who.#)',20
+ return 0
+
+MkTextw:
+ parse value 'Kilroy was here yesterday' with who what where when
+ #textw=4
+ return 0

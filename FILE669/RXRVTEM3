@@ -1,0 +1,13 @@
+ /*    ISPF edit macro                                   rexx */
+ say 'RXRVTEM3 running....'
+
+ Address Isredit "MACRO NOPROCESS (p)"
+ Address Isredit
+
+ "autosave on"
+ "end"
+
+ say 'RXRVTEM3 done....'
+ exit 0
+
+ "cancel"
