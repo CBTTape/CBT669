@@ -1,0 +1,211 @@
+ /*                                                             REXX
+  RXVSAMBA Installation Verification build
+ */
+
+ say 'Version' RxVsamBa('version')
+ say ''
+
+ parse source sys type whoami ddn whereami .
+ address tso
+ maxrc=0
+ totdel=0
+ totins=0
+ dbkeylen=25
+ cols100= '----+----1----+----2----+----3----+----4',
+       || '----+----5----+----6----+----7----+----8',
+       || '----+----9----+----0'
+ cols40=left(cols100,40)
+ cols80=left(cols100,80)
+
+ arg p
+ if p<>'' then say 'Parameters:    ' p
+ parse var p . 'PFX('dspfx')' . 0 . 'PGM('pgmname')' .,
+       0 . 'DELA('dela')' . 0 . 'VOL('testvol')' .
+ parse var whereami q1'.'
+ if dspfx='' then dspfx=userid()
+ if pos('.',dspfx)=0 then dspfx=dspfx'.RXVSAMBA'
+ ksdsds ="'"dspfx".TEST.KSDS'"
+ rrdsds ="'"dspfx".TEST.RRDS'"
+ pgmname=word(pgmname 'RXVSAMBA',1)
+ dela   =word(dela    'N',1)
+ call xmsg 'Program test specs'
+ say 'Dataset prefix..' dspfx
+ say 'Test KSDS name..' ksdsds
+ say ''
+ call xmsg center('KSDS',70,'-')
+ say ''
+ Call MakeTestData
+ Call MakeKSDS     /* setup test data */
+ Call DBinfo 'KSDS'
+ if RXVBrecl<>200 then Exit Xmsg('*error*, lrecl should be 200',20)
+ say ''
+
+ /*------------------ Do tests ---------------------------------------*/
+ n=0
+ parse value n+1 '*.LINK*' with n ms.n
+ parse value n+1 '*.MAC*' with n ms.n
+ ms.0=n
+ call rexxvars 'list var(ms.#)'
+ Call DoTest 'Del by mask stem',,
+      'del maskstem(ms.) pos(16) endpos(30) list(lst.)'
+ call rexxvars 'list var(lst.#)'
+ Call DoTest 'Del by mask stem and key',,
+      'del maskstem(ms.) pos(16) endpos(30) key(0) list(lst.)'
+
+ /*------------------ End ok         ---------------------------------*/
+ok:
+ Call Rtn 'All ok'
+
+Rtn:
+ cc=Silent("Free dd(ksds)")
+ if arg(1)<>'' then say arg(1)
+ if dela='Y'   then do
+   if Silent("Delete" ksdsds "cl")=0 then,
+     say 'Testcl' ksdsds 'deleted'
+   else  say 'Testcl' ksdsds 'delete failed'
+ end
+ if arg(2)<>'' then maxrc=word(arg(2) maxrc,1)
+ exit xmsg('IVP ended rc' maxrc,maxrc)
+
+DoTest: /* parm1: header parm2: command */
+ say time() 'Test' arg(1) '-' arg(2)
+ drop lst.
+ cc=RxVsamBa(arg(2) 'dd(ksds)')
+ say time() 'rc' cc 'reads' rxvbread+0,
+     'writes' rxvbwrit+0 'inserts' rxvbinse+0 'updates' rxvbupdt+0,
+     'deletes' rxvbdele+0 'errmsg "'space(rxvberrm)'"'
+ if datatype(lst.0)<>'NUM' then say 'lst.0 is not numeric'
+ else do n=1 to lst.0
+   say '    'lst.n
+ end
+ say ''
+ if arg(3)='' then return cc
+ if cc<>arg(3) then exit xmsg('rc' cc+0 'ne' arg(2),20)
+ return cc
+
+Silent: zz=outtrap(word(arg(2) '$.',1))
+        address tso arg(1);zz=outtrap('off');return rc
+
+Xmsg: say time() arg(1);maxrc=word(arg(2) maxrc,1);return word(arg(2) 0,1)
+
+SayError:
+ say 'Error' arg(1)
+ cc=RexxGblv('rlist var(rxvb*)')
+ return 0
+
+DBinfo:
+ call xmsg 'DB info for DD' arg(1)
+ cc=RxVsamBa('info dd('arg(1)')')
+ say 'keylen ' RXVBkeyl
+ say 'keypos ' RXVBkeyp
+ say 'lrecl  ' RXVBrecl
+ say 'dbtype ' RXVBdbty
+ return 0
+
+MakeKSDS:
+ arg p
+ cc=Silent("Free dd(ksds)")
+ cc=Silent("DELETE" ksdsds "cl")
+ "DEFINE CLUSTER(NAME("ksdsds") VOLUME(XXXXXX)",
+ "TRACKS(3 3) KEYS(15 0) RECORDSIZE(60 200) )",
+ "DATA(CISZ(4196))"
+ if rc<>0 then do
+   say 'Define failed rc' rc,20
+   exit 20
+ end
+ "alloc dd(ksds) da("ksdsds") shr"
+ if rc<>0 then exit xmsg('Alloc test db failed' rc)
+ say  'Test cluster allocated to fileref KSDS'
+
+ datan=data.0
+ trace off
+ cc=RxVsamBA('put dd(ksds) stem(data.)')
+ if cc<>0 then exit xmsg('Write failed rc' cc rxvberrm,20)
+ trace off
+ drop data.
+ return 0
+ if p<>'SILENT' then say qn 'records written to db'
+ return 0
+
+MakeTestData:
+ /*     ----+----1----+----2----+----3----+----4----+----5 */
+ queue 'CBT669.LINKLIB           LCLRES PO   U         0 32760'
+ queue 'CBT669.Z27.LPALIB        LCLRES PO   U         0 32760'
+ queue 'CBT669.Z27.LPALIB.OLD    LCLRES PO   U         0 32760'
+ queue 'SYS1.ADFMAC1             ZOSRS2 PO   FB       80 27920'
+ queue 'SYS1.AHASMOD             WORKS3'
+ queue 'SYS1.CMDLIB              ZOSRES PO   U         0 32760'
+ queue 'SYS1.FDM763.ASSEMBLE     ZOSRS2'
+ queue 'SYS1.FDM763.CLIST        ZOSRS2'
+ queue 'SYS1.FDM763.CNTL         ZOSRS2'
+ queue 'SYS1.IODF01.WORK         ZOSRES VS   ?         ?     ?'
+ queue 'SYS1.LIB.DATA            WORKA4 PO   FB       80 27920'
+ queue 'SYS1.LINKLIB             ZOSRES PO   U         0 32760'
+ queue 'SYS1.LINKLIB.B           ZOSRES PO   U         0 32760'
+ queue 'SYS1.LPALIB              ZOSRES PO   U         0 32760'
+ queue 'SYS1.Z27.LPALIB          ZOSRES PO   U         0 32760'
+ queue 'SYS1.MACLIB              ZOSRES PO   FB       80 27920'
+ queue 'SYS1.MASTER.CAT.REPORT   Z26US1'
+ queue 'SYS1.MCAT.VZOSRES        ZOSRES VS   ?         ?     ?'
+ queue 'SYS1.RACF                ZOSRES PS   F      4096  4096'
+ queue 'SYS1.SBG.HELP            ZOSRS1 PO   FB       80  6160'
+ queue 'SYS1.SBG.MSGS            ZOSRS2 PO   FB       80 27920'
+ queue 'SYS1.SEDGMENU            ZOSRS2 PO   FB       80 27920'
+ queue 'SYS1.SHASLNKE            ZOSRES PO-E U         0 32760'
+ queue 'SYS1.SHASMAC             ZOSRES PO   FB       80 27920'
+ queue 'SYS1.SHASMENU            ZOSRES PO   VB      259 27998'
+ queue 'SYS1.SMS.ACDS1           *VSAM* VS             ?     ?'
+ queue 'SYS1.SMS.COMMDS1         *VSAM* VS             ?     ?'
+ data.0=queued()
+ say cols100
+ say 'Testdata...'
+ do n=1 to data.0
+   parse pull r
+   data.n=left(time('l'),15) space(r)
+ /*data.n=left(time('l'),15) translate(space(r),'/',' ')*/
+   say data.n
+ end
+ say 'End...'
+ return QSort('data.')
+
+QSort: /* copy stem, then sort, then replace stem. note - sort stem is 'S.' */
+       /* numeric values are sorted numereically, i.e. 004 comes after 1    */
+ drop s s.
+ arg qsn . ,qsopt .                              /* opt='R' -> load reversed */
+ if value(qsn'0')<2 then return 0                /* nothing to sort          */
+ do #=0 to value(qsn'0'); s.#=value(qsn||#); end /* make sort stem           */
+ Call QSortX                                     /* run sort                 */
+ parse value 0 1 s.0 1 with @ qsf qst qsb
+ if qsopt='D' | qsopt='R',                       /* descending / reversed    */
+   then parse value s.0 1 '-1' with qsf qst qsb
+ do #=qsf to qst by qsb; @=@+1;?=value(qsn||@,s.#);end
+ drop s s.
+ return 0
+QSortX: procedure expose S.
+ j=1+s.0; s.j='ff'x                              /* circumvent no-val issue  */
+ b.1=s.0; a.1=1; $= 1                            /* size, pivot              */
+ if QSortio(b.1)  then return                    /* already in order?        */
+ do  while  $<>0;
+   L= a.$; t= b.$; $= $ - 1; if t<2  then iterate
+   H= L + t - 1;   ?= L  +  t % 2
+   if S.H<S.L then if S.?<S.H  then do; p= S.H; S.H=S.L; end
+              else if S.?>S.L  then p= S.L
+              else do; p= S.?; S.?= S.L; end
+              else if S.?<S.L then p=S.L
+              else if S.?>S.H  then do; p= S.H; S.H= S.L; end
+              else do; p= S.?; S.?= S.L; end
+   j= L+1; k= h
+   do forever
+     do j=j         while j<=k & S.j<=p;  end    /* a teeny-tiny loop        */
+     do k=k  by -1  while j< k & S.k>=p;  end    /* another   "    "         */
+     if j>=k  then leave                         /* segment finished?        */
+     _= S.j;   S.j= S.k;   S.k= _                /* swap J&K elements        */
+   end  /*forever*/
+ $= $ + 1
+ k= j - 1;   S.L= S.k;   S.k= p
+ if j<=?  then do; a.$= j; b.$= H-j+1; $= $+1; a.$= L; b.$= k-L;   end
+          else do; a.$= L; b.$= k-L;   $= $+1; a.$= j; b.$= H-j+1; end
+ end    /*while $<>0*/
+ return
+QSortio: /* test if data is already in order */
+parse arg n; do j=1 for n-1; k= j+1; if S.j>S.k then return 0; end; return 1

@@ -1,0 +1,166 @@
+//RXHL$COB JOB (1),'DVL-RXHL-COBOL-DEMO',
+//  CLASS=A,COND=(0,LT),REGION=0M
+//*
+//* Test hl-interface module to acces REXX vars and stack
+//* This test is for COBOL
+//*
+//  SET DP=WJENSEN,JL=IGY.HADB640.SIGYPROC,LP=IGY.HADB640   CBT
+//  SET DP=Z,JL=CBT669.PROCLIB,LP=IGY630                    Package
+//  SET DP=DVL,JL=CBT669.PROCLIB,LP=IGY630                  Dvl
+//*
+//  SET PPLIB=&DP..PP.RXHLLK.LIB
+//  SET PPMOD=&DP..PP.RXHLLK.MOD
+//  JCLLIB ORDER=&JL
+//*
+//COB1        EXEC IGYWCL,LNGPRFX=&LP
+//COBOL.SYSIN  DD *
+       IDENTIFICATION DIVISION.
+        PROGRAM-ID.  Howdy.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+        01 l       PIC 9(5)  COMP.
+        01 hlicmd  PIC x(8) .
+        01 nameval PIC x(60) .
+        01 namelen PIC 9(5)  COMP.
+        01 textval PIC x(120) .
+        01 textlen PIC 9(5)  COMP.
+        01 rc      PIC 9(5)  COMP.
+       LINKAGE SECTION.
+        PROCEDURE DIVISION.
+         GO-MAIN.
+            DISPLAY "Starting...".
+      *-
+      * issue message
+      *-
+            Display "Do MSG".
+            move 0 to rc.
+            move "MSG     " to hlicmd.
+            move spaces to textval.
+            move "This is a message from our sponsor" to textval.
+            move 0 to l .
+            Inspect function reverse(textval)
+              tallying l for leading spaces.
+            Compute textlen = length of textval - l.
+            CALL "RXHLLK"
+              using hlicmd textval textlen
+              returning rc.
+            DISPLAY " RXHLLK rc " rc.
+            DISPLAY " ".
+      *-
+      * do vget
+      *-
+            Display "Do VGET TESTVAR".
+            move 0 to rc.
+            move "VGET    " to hlicmd.
+            move "TESTVAR" to nameval.
+            move 7 to namelen.
+            move spaces to textval.
+            move length of textval to textlen.
+            CALL "RXHLLK"
+              using hlicmd nameval namelen textval textlen
+              returning rc.
+            DISPLAY " RXHLLK rc " rc.
+            PERFORM SHOW-DATA.
+            DISPLAY " ".
+      *-
+      * do vput
+      *-
+            Display "Do VPUT NEWVAR".
+            move 0 to rc.
+            move spaces to textval.
+            move "Adding new variable.." to textval.
+            move 0 to l .
+            Inspect function reverse(textval)
+              tallying l for leading spaces.
+            Compute textlen = length of textval - l.
+            PERFORM SHOW-DATA.
+            move "VPUT    " to hlicmd.
+            move "NEWVAR" to nameval.
+            move 6 to namelen.
+            CALL "RXHLLK"
+              using hlicmd nameval namelen textval textlen
+              returning rc.
+            DISPLAY " RXHLLK rc " rc.
+            DISPLAY " ".
+      *-
+      * do stack pull
+      *-
+            Display "Do PULL".
+            move 0 to rc.
+            move "PULL    " to hlicmd.
+            move spaces to textval.
+            move length of textval to textlen.
+            PERFORM SHOW-DATA.
+            CALL "RXHLLK"
+              using hlicmd textval textlen
+              returning rc.
+            DISPLAY " RXHLLK rc " rc.
+            PERFORM SHOW-DATA.
+            DISPLAY " ".
+      *-
+      * do stack add (queue)
+      *-
+            Display "Do stack add (queue)".
+            move 0 to rc.
+            move spaces to textval.
+            move "This is a new stack entry." to textval.
+            move 0 to l .
+            Inspect function reverse(textval)
+              tallying l for leading spaces.
+            Compute textlen = length of textval - l.
+            PERFORM SHOW-DATA.
+            move "QUEUE   " to hlicmd.
+            CALL "RXHLLK"
+              using hlicmd textval textlen
+              returning rc.
+            DISPLAY " RXHLLK rc " rc.
+            DISPLAY " ".
+      *-
+      * do next
+      *-
+            Display "Do NEXT"
+            move 0 to rc.
+            PERFORM GET-NEXT UNTIL rc > 1.
+            DISPLAY " ".
+      *-
+      * end
+      *-
+            STOP RUN.
+      *-
+      * get-next subroutine
+      *-
+         GET-NEXT.
+            move "NEXT    " to hlicmd.
+            move spaces to nameval.
+            move length of nameval to namelen.
+            move spaces to textval.
+            move length of textval to textlen.
+            Display " Calling RXHLLK NEXT".
+            CALL "RXHLLK"
+              using hlicmd nameval namelen textval textlen
+              returning rc.
+            DISPLAY " RXHLLK rc " rc.
+            if rc < 2 then
+              PERFORM SHOW-NAME
+              PERFORM SHOW-DATA
+            end-if.
+         SHOW-DATA.
+            DISPLAY " text " textlen " " FUNCTION TRIM(textval) .
+         SHOW-NAME.
+            DISPLAY " name " namelen " " FUNCTION TRIM(nameval) .
+//LKED.SYSLMOD DD DISP=(,PASS),DSN=&&PGMLIB(RXHLDCOB)
+//LKED.SYSLIB  DD
+//             DD
+//             DD DISP=SHR,DSN=SYS1.LINKLIB
+//             DD DISP=SHR,DSN=&PPMOD
+//*
+//* Run from a REXX pgm
+//*
+//RXEX     EXEC PGM=IKJEFT1B,PARM='RXHLRXT COB'
+//SYSEXEC  DD DISP=SHR,DSN=&PPLIB
+//STEPLIB  DD DISP=OLD,DSN=&&PGMLIB
+//SYSTSPRT DD SYSOUT=*,OUTLIM=1000           TSO messages
+//SYSTSIN  DD DUMMY
+//SYSOUT   DD SYSOUT=*,OUTLIM=1000           Cobol display
+//SYSPRINT DD SYSOUT=*,OUTLIM=1000           ASM prt
+//SYSUDUMP DD DUMMY

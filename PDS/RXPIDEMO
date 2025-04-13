@@ -1,0 +1,187 @@
+/*                                                                 rexx
+
+ Demonstrate some of PXPIPEs capabilities.
+
+ The demo is intended to run in its entirety in batch, though you can
+ run individual tests. It must complete with return code 0, otherwise
+ you should contact the developer (see below). See the RXPIDEM$ member
+ for a sample job.
+
+ You can run it online, either from ISPF 3.4 member list, or using
+ the TSO EXEC command.
+
+ To get to grips with the RXPIPE command, you should read the
+ introduction in the RXPIINTR member and the reference manual in
+ member RXPIDOC.
+
+ RXPIPE is written by
+  Willy Jensen
+  mail: willy@harders-jensen.com
+  web : http://harders-jensen.com
+
+*/
+
+ demolib=''   /* set datasetname for the RXPIPE library */
+ ?altlib=0
+
+ ?ISPF=(Sysvar('SYSISPF')='ACTIVE')
+ if \?ISPF then call quit '*ISPF services are not available',8
+
+ parse source sys @what @me @ddn @where .
+
+ address ispexec 'control errors return'
+ say ''
+ if demolib='' then do  /* try alternate sources */
+   cc=BpxWdyn('info dd(RXPILIB) inrtdsn(d)')
+   if cc=0 then demolib=d
+   if demolib='' & pos('.',@where)>0 then demolib=@where
+   if demolib='' then do
+     say @where
+     say 'Please enter the name of the RXPIPE demolib, or null to quit'
+     pull demolib
+     if demolib='' then,
+       Call Quit 'Could not determine the RXPIPE lib',8
+   end
+ end
+ parse var demolib demopfx '.' .
+ "altlib act appl(exec) da('"demolib"') uncond"
+ ?altlib=(rc=0)
+
+ user = userid()
+ "prof prefix("userid()")"
+ "delstack"
+
+ say 'RXPIPE version' Rxpipe('ver') 'started' Date('s') time()
+ say ''
+
+ /*--------------------------------------------------------------------
+                            Start demos
+ --------------------------------------------------------------------*/
+ Call Xtso "delete '"userid()".rxpipe.test.ds'"
+
+ /* Show 3 lines of text added to the pipe directly
+ */
+ say 'Text...'
+ Rxpipe " text Kilroy | text was | text    here | list"
+ say ''
+
+ /*
+    Load SYS1.HELP member CALL, drop copyright notices etc at the top,
+    drop sequence numbers if any, then list top 16 lines.
+    Note that quotes around the datasetname are not used, in fact they
+    shouldn't be there at all.
+ */
+ say 'List SYS1.HELP(CALL)...'
+ Rxpipe "<SYS1.HELP(CALL) | filter left(r,1)<>'*' | chop 72",
+         "| head 16 | list Top 16 lines of SYS1.HELP(CALL)"
+ say ''
+
+ /*
+    Load SYS1.HELP member CANCEL, drop copyright notices etc at the top,
+    drop sequence numbers if any, then write the remaining lines to a
+    new sequential dataset and list contents of that.
+    The 'strip' command will generate varable-length records and thus
+    a varable-length dataset.
+    Note the use of the &user variable in the '>' (write) command.
+ */
+ say 'List SYS1.HELP(CANCEL)...'
+ Rxpipe "<SYS1.HELP(CANCEL)",
+         "| filter left(r,1)<>'*' | chop 72 | strip t",
+         "| >&user..rxpipe.test.ds cond",
+         "| if $rc<>0",
+            "then Call Quit 'rc 8 msg write failed' $rc",
+         "| <&user..rxpipe.test.ds "
+ say ''
+
+ /*
+    Listcat SYS1.HELP
+ */
+ say 'Listcat SYS1.HELP..'
+ Rxpipe "listcat ent('sys1.help') all | compress"
+ say ''
+
+ /*
+    List MVS info SYSOPSYS
+ */
+ say 'List MVS info SYSOPSYS..'
+ Rxpipe "set opsys=mvsvar('SYSOPSYS')|text sys=&opsys"
+ say ''
+
+ /*
+    Show ISPMLIB datasetname
+ */
+ say 'Show ISPMLIB datasetname..'
+ Rxpipe "listdsi ispmlib file | text ispmlib=&sysdsname"
+ say ''
+
+ /*
+    List first 10 of your datasets
+ */
+ say 'List first 10 of your datasets..'
+ Rxpipe "catsearch &user a fields dsname",
+         "| if $stacked=0",                  /* check data in stack      */
+            "then call quit 'rc 8 msg Nothing in stack'",
+         "| head 11",                        /* leave header + 10 names  */
+         "| list Listing &user.** datasets"  /* list with header         */
+ say ''
+
+ /*
+    List members of your SYSEXEC in a 6-column table
+ */
+ say 'List first 30 members of SYSEXEC contents as table..'
+ Rxpipe "MbrList sysexec",                  /* list by ddname           */
+         "| head 51",                       /* leave header + 10 names  */
+         "| Table cols 6 bord both"         /* make table               */
+ say ''
+
+ /*
+    Fan-out then in
+ */
+ say 'Fan out to 3 streams, then fan in from 2..'
+ queue '0001 USER1.A.DATASETS            NONVSAM  USRDU1'
+ queue '0002 USER1.AIXTEST.AIXP1         PATH           '
+ queue '0003 USER1.AIXTEST.DB            CLUSTER        '
+ queue '0004 USER1.ASMA.LIST             NONVSAM  USRDU3'
+ queue '0005 USER1.ASMA.MSGS             NONVSAM  USRDU3'
+ queue '0006 USER1.ASMA.OBJ              NONVSAM  USRDU3'
+ queue '0007 USER1.ASMAL.LIB             NONVSAM  USRDU3'
+ queue '0008 USER1.BACKUP.ALL            NONVSAM  USRDU1'
+ queue '0009 USER1.BACKUP.ALL.TRS        NONVSAM  USRDB2'
+ queue '0010 USER1.DISK.BUSRDS1.DUMP     NONVSAM  USRD25'
+ queue '0011 USER1.DISK.BUSRDU1.DUMP     NONVSAM  USRD26'
+ queue '0012 USER1.DISK.BUSRDU3.DUMP     NONVSAM  USRD27'
+ Rxpipe "| fanout",
+         " :1 where pos('.ASMA.',r)>0"  ,
+         " :2 w2 w3 where pos('.BACKUP.',r)>0",
+         " :3 where pos('.DISK.',r)>0"  ,
+         "| list ",
+         "| fanin",
+         " :1 w2 w3 where pos('.LIST',r)>0" ,
+         " :3"
+ say ''
+
+ /*--------------------------------------------------------------------
+                            End of demos
+ --------------------------------------------------------------------*/
+ if queued()>0 then do
+   say '** still stacked entries:'
+   do queued()
+     parse pull r
+     say '  'r
+   end
+ end
+ call quit 'All ok..'
+
+Quit:
+ parse arg txt,zispfrc
+ say txt
+ if ?altlib then "altlib deact appl(exec)"
+ if ?ispf then do
+   address ispexec 'vput zispfrc shared'
+   exit 4
+ end
+ else exit zispfrc
+
+XMsg: say arg(1);return 0
+XTSO: trace off; zz=outtrap(word(arg(2) '$.',1))
+        address tso arg(1);zz=outtrap('off');xtsorc=rc;return rc

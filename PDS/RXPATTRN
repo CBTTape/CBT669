@@ -1,0 +1,813 @@
+//RXPN009  JOB (1),'RXPATTRN-V009',
+//*  RESTART=IVP1,
+//         CLASS=A,COND=(0,LT)
+//*
+//* REXX function, Test a string against a pattern
+//*                Test a stem against a pattern
+//*                Filter a stem using a pattern
+//*
+//* WARNING
+//*  Build009  redefines all the output stem parameters, so you must
+//*  verify that all current uses of RAPATTRN are not affected,
+//*  otherwise they have to be modified.
+//*
+//*
+//  SET VER=009
+//  SET IVP=I&VER
+//  SET IVP=IVP1
+//*
+//A       EXEC ASMACL, XL,MACLIST=RXPATTRN,
+//          PARM.C='TERM,RENT',
+//          PARM.L='RENT,REUS,LIST,MAP,XREF,RMODE(ANY),AMODE(31)'
+//C.SYSLIB  DD DISP=SHR,DSN=CBT669.PP.RXPATTRN.LIB
+//          DD DISP=SHR,DSN=SYS1.MACLIB
+//          DD DISP=SHR,DSN=SYS1.MODGEN
+//C.SYSTERM DD SYSOUT=*
+//* SYSLIN is to allow the object deck to be inluded by other
+//* products, i.e. MLCOMP.
+//C.SYSIN   DD *
+**asma syslib *
+**asma opt term
+*Process compat(macrocase)
+*
+* Test a string against a pattern
+*
+* Build: 009.1, 2023-06-28
+*
+*  New in this build
+*
+*  Changed in this build
+*   -  redefine the way the RSTEM is formatted
+*
+*  Fixed in this build
+*   -  RSTEM not working
+*
+*
+* Syntax (see the RXPNDOC member for a better documentation)
+*
+*  rc = RxPattrn(string,pattern,wildcard,options)  test single string
+*  rc = RxPattrn(command-string)                   test stem
+*       command-string:
+*         STEM(input-stem-name)
+*         MATCH(match-stem)
+*         NOMATCH(nomatch-stem)
+*         MATRIX(result-matrix-stem)
+*         OVERLAY(overlay-stem)
+*         NSTEM(match-stem)    *alias of MATCH for compatability
+*         MASK(mask)
+*         MASKVAR(name)
+*         MASKSTEM(name)
+*         POS(start test)
+*         LEN(length of test)
+*         MCHR(match-chr)
+*         NCHR(nomatch-chr)
+*         OVLPOS(pos)
+*         BUFSZ(vget-buffer-size)      adjusted to 4K
+*
+*
+* Parameters
+*  string    just a string
+*  pattern   the pattern to test against, or preprocess
+*  wildcard  2 chars for one-char and zero-or-none test.
+*            Optional, default is '%*'.
+*  options   T for tracing
+*
+*  Return
+*    0   ok
+*    1   pattern not match
+*    2   missing string
+*    3   missing pattern
+*    4   invalid wildcard length
+*    5   syntax error
+*    8   other error, see the reason variable
+*
+*
+* Installation notes
+*
+* The  program will by default reload itself thus retaining the
+* module in the JPAQ. This improves performance for multiple calls
+* significantly. This load will not be done if the program is added
+* to the LPA, which is the recommended placement.
+*
+* You can disable the self-load option by removing the 'CDEUCTZ2'
+* statement.
+*
+*
+* Contact info
+*  email   willy@harders-jensen.com
+*  web     https://harders-jensen.com  (newest version here)
+*-
+
+*- set some defaults
+         lclc  &name,&build,&bfrsz
+&name    setc  'RXPATTRN'
+&build   setc  '009.6'
+&bfrsz   setc  '512*1024'              512K
+&syntax_abend setb 0                   1 = abend when syntax error
+&combwarn     setb 1                   1 = warning for old systax
+*-
+         print off
+         Copy  SYSMACS
+         Copy  WSAMMACS
+         Copy  REXXMACS
+         print on
+*-
+         Macro
+         ClrLong
+.* clear up to 16M storage area
+.* operand 1 -> target
+.* operand 2 =  target size
+.* operand 3 =  pad chr, optional, defalt is x'00'
+         lclc  &pad
+         setreg r0,&syslist(1)         address
+         setreg r1,&syslist(2),l'&syslist(1)
+         sr    r14,r14                 null source
+         sr    r15,r15                 null source length
+         aif   (n'&syslist lt 3).padn
+&pad     setc  '&syslist(3)'
+         la    r15,&pad
+         sll   r15,24
+.padn    anop
+         mvcl  r0,r14                  clear
+         Mend
+*- Reason
+         Macro
+         Reason &t,&c,&p3
+         lcla  &l
+&l       seta  k'&t-2
+         mvc   reason(&l),=c&t
+         mvc   reasonl,=a(&l)
+         aif   (k'&c eq 0).x
+         mvc   rc,=a(&c)
+         aif   ('&p3' ne 'T' and '&p3' ne 't').x
+         mvc   logr,reason
+         trclog ,
+.x       Mend
+
+*- Trclog
+         Macro
+&ml      TrcLog &t,&k
+         lclc  &l
+&l       setc  'TL&sysndx'
+&ml      ds    0h
+         cli   trace,c'Y'
+         jne   &l.x
+         mvlit logr,&t
+         aif   (k'&k eq 0).k0
+         RxSay logr,&k
+         ago   .b
+.k0      RxSay logr
+.b       anop
+         clear logr
+&l.x     equ   *
+         Mend
+*-
+         #subr set,entry=csect,saend=sapooln,base=r12,rcfield=rc
+*-
+*-
+* Start module
+*-
+&name    #module base=r11,sa=sa1,work=(lclstorl,lclstor,r10,C),        c
+               text='&build',epilog=epilog
+         clear blank
+         mvc   logr,blank
+         mvc   reason,blank
+         xc    rc,rc
+         xc    zero,zero
+         zap   p0,=p'0'
+         zap   p1,=p'1'
+         mvc   inpstem#,p0             input
+         mvc   matstem#,p0             match
+         mvc   nomstem#,p0             nomatch
+         mvc   mtxstem#,p0             matrix
+         mvc   ovlstem#,p0             overlay
+         mvc   matchnum,zero
+
+*-
+* Make sure module stays in memory
+*-
+         CDEUCTZ2 wto=N
+
+*-
+* init REXX interface
+*-
+         ereg  0,1
+         RxInit parmlist=((string,A),(mask,A),       pointers          c
+               (wildcdp,2),(opt,1))                  data
+         oc    opt,blank
+         if    (cli,opt,eq,c'T'),then=(mvi,trace,c'Y')
+         if    (cli,wildcdp_ds,eq,0)
+           mvc   wildcdp(2),=c'*%'
+           mvi   wildcdp_ds,2
+         endif
+
+*-
+* return version
+*-
+         if    (=a(7),eq,string+4),and,(zero,eq,mask+4) lengths
+           l     r1,string
+           mvc   dw(7),0(r1)                 copy text
+           oc    dw,blank
+           if    (=c'VERSION',eq,dw)
+             la    r1,verstxt
+             la    r2,l'verstxt
+             stm   r1,r2,retval
+             #module end
+           endif
+         endif
+
+*-
+* possible key parameter list?
+*-
+         if    (cli,string_ds,ne,0),and,(cli,mask_ds,eq,0)
+           #subr call,Type2
+           #module end
+         endif
+
+*-
+* list parameters if tracing
+*-
+         if    (cli,trace,eq,c'Y')
+           print nogen
+           trclog 'version &build'
+           StrMake logr,'text    ',                                    c
+               (string+0,4,cvxd),+1,         address                   c
+               (string+4,4,cvxd),+1,         length                    c
+               (string+6,2,cvd,3),+1,(f.string,f.string+4,,60)
+           trclog
+           StrMake logr,'mask    ',                                    c
+               (mask+0,4,cvxd),+1,           address                   c
+               (mask+4,4,cvxd),+1,           length                    c
+               (mask+6,2,cvd,3),+1,(f.mask,f.mask+4)
+           trclog
+           StrMake logr,'wildcds ',                                    c
+               (wildcdp_ds,1,cvd,3),' "',wildcdp,'"'
+           trclog
+           print gen
+         endif
+
+*-
+* check parameters
+*-
+         if    (cli,string_ds,eq,0)
+           Reason 'Missing string',2,t
+           #module end
+         endif
+         if    (cli,mask_ds,eq,0)
+           Reason 'Missing mask',3,t
+           #module end
+         endif
+         if    (cli,wildcdp_ds,ne,2)
+           Reason 'Invalid wildcard',4,t
+           #module end
+         endif
+
+*-
+* Do pattern check
+*-
+         StrPatrn str=(f.string,f.string+4),                           c
+               mask=(f.mask,f.mask+4),                                 c
+               wc=wildcdp
+         st    r15,rc
+
+         if    (cli,trace,eq,c'Y')
+           lr    r2,r0            string addr
+           la    r2,1(,r2)
+           s     r2,string        pos -> offset
+           lr    r3,r1            mask addr
+           la    r3,1(,r3)
+           s     r3,mask          pos -> offset
+           strmake logr,'Result  x',(rc,4,cvxd),+1,(rc+2,2,cvd),       c
+               ' strpos ',(r2,,cvdr,4),                                c
+               ' maskpos ',(r3,,cvdr,4)
+           TrcLog   ,
+         endif
+
+         if    (rc,ne,zero)
+           strmake reason,'x',(rc,4,cvxd),lr=r2
+           st    r2,reasonl
+           mvc   rc,=a(1)
+         endif
+         #module end
+
+*-
+* Backend
+*-
+
+Epilog   #subr label
+         if    (lt,r4,vardataa,nz)            acquired buffer?
+           l     r5,vardataal
+           stm   r4,r5,dw
+           strmake logr,'storrlse ',(dw+4,4,c2d),+1,(dw,4,c2x)
+           trclog ,
+           Storage RELEASE,length=(5),addr=(4)
+         endif
+
+         if    (cli,maskstem_dl,ne,0)         mnskstem list?
+           SlnkLst dropall,first=f.maskstma
+         endif
+
+         if    (icm,r5,15,reasonl,nz)
+           la    r4,reason
+         else
+           la    r4,=c' '
+           la    r5,1
+         endif
+         RxVput name='RXPATTRN_RS',data=((r4),(r5))
+
+         STRC2N FROM=matchnum,TO=wrk256
+         lr    r2,r0
+         RxVput name='RXPATTRN_MATCH',data=(wrk256,(r2))
+
+         if     (icm,r4,15,retval,nz)        -> text
+           l     r5,retval+4                 text length
+         else
+*          l     r15,rc
+*          StrR2D reg=r15,to=(dw,8)
+*          la    r5,8                        text length
+           STRC2N FROM=rc,TO=dw
+           lr    r5,r0
+           la    r4,dw                       -> text
+         endif
+         if    (cli,trace,eq,c'Y')
+           strmake logr,'rc ',((r4),(r5)),lenreg=r3
+           trclog
+         endif
+         RxRetval (r4),(r5)
+
+         #subr exit,rc=0
+
+*-
+* Inline data
+*-
+         gblc  &$sclock
+         Macro
+         SClock
+         gblc  &$sclock
+&$sclock setc  '&sysclock'(1,19)
+         Mend
+         SClock
+verstxt  dc    c'RXPATTRN &build &$sclock'
+
+         ltorg
+
+*-
+*
+* By keyword
+*
+*-
+Type2    #subr csect,base=(r11,r12)
+* do some more initializations
+         xc    maskstma,maskstma
+*-
+* get parameters
+*-
+         mvc   logr,blank
+         clear maskstr
+         StrParse (f.string,f.string+4),                               c
+               (stem,inpstem,c=u,a=2,l=100,v=a),                       c
+               (match,matstem,c=u,a=2,l=100,v=a),                      c
+               (nstem,nstem,c=u,a=2,l=100,v=a),                        c
+               (nomatch,nomstem,c=u,a=2,l=100,v=a),                    c
+               (matrix,mtxstem,c=u,a=2,l=100,v=a),                     c
+               (overlay,ovlstem,c=u,a=2,l=100,v=a),                    c
+               (mask,maskstr,l=200),                                   c
+               (pos,pos,a=1,v=n,c=b,l=f,i=1),                          c
+               (len,len,a=1,v=n,c=b,l=f,i=0),                          c
+               (mdlm,maskdlm,l=3),                                     c
+               (maskvar,maskvar,c=u,a=5,l=100),                        c
+               (maskstem,maskstem,c=u,a=5,l=100),                      c
+               (mchr,mchr,a=2,l=1),                                    c
+               (nchr,nchr,a=2,l=1),                                    c
+               (ovlpos,ovlpos,a=2,v=n,c=b,l=f,i=1),                    c
+               (mcnd,mcnd,c=u,l=1),               condition A or O     c
+               (wildcd,wildcd,a=2,l=2),                                c
+               (bfrsz,bfrsz,v=n,c=b,l=f,i=&bfrsz),                     c
+               (excl,excl,l=40),                                       c
+               (exclpos,exclpos,a=5,v=n,c=b,l=f,i=1),                  c
+               (trace,trace,l=1),                                      c
+               msg=logr,build=Y
+         if    (ltr,r5,r15,nz)
+ aif   (&syntax_abend eq 0).nsynabn
+               abend 1
+.nsynabn anop
+           StrLen data=logr
+           lr    r2,r15
+           strmake reason,'StrParse rc ',(r5,,cvdr,4),+1,(logr,(r2)),  c
+               lr=r2
+           st    r2,reasonl
+           #subr exit,rc=5
+         endif
+
+ aif   (&combwarn eq 0).combwarnn
+* compatability with earlier build
+         if    (cli,nstem_dl,ne,0),and,(cli,matstem_dl,eq,0)
+           mvc   matstem_dl(l'matstem+1),nstem_dl
+           RxSay 'RXPATTRN MATCH substituted for NSTEM'
+         endif
+
+.combwarnn anop
+* set some defaults
+         if    (cli,wildcd_dl,eq,0),then=(mvc,wildcd(2),=c'*%')
+
+* check required
+         if    (cli,maskstr_dl,eq,0),                                  c
+               and,(cli,maskvar_dl,eq,0),                              c
+               and,(cli,maskstem_dl,eq,0)
+           reason 'Missing mask'
+           mvc   logr,reason
+           trclog ,
+           #subr exit,rc=5
+         endif
+         sr    r2,r2
+         if    (cli,matstem_dl,ne,0),                                  c
+               or,(cli,mtxstem_dl,ne,0),                               c
+               or,(cli,ovlstem_dl,ne,0),                               c
+               then=(la,r2,1)
+         if    (cli,inpstem_dl,eq,0),or,(ltr,r2,r2,z)
+           reason 'Missing stem'
+           mvc   logr,reason
+           trclog ,
+           #subr exit,rc=5
+         endif
+         if    (cli,mcnd_dl,eq,0),then=(mvi,mcnd,c'O')
+
+* if MASKVAR then get value as MASKSTR
+         if    (cli,maskvar_dl,ne,0)
+           RxVget name=(maskvar,b.maskvar_dl),                         c
+               data=(maskstr,b.maskstr_fl)
+           if    (ltr,r15,r15,nz)
+             strmake reason,'VGET ',(maskvar,b.maskvar_dl),' failed',  c
+               lr=r2
+             st    r2,reasonl
+             mvc   logr,reason
+             trclog ,
+             #subr exit,rc=8
+           endif
+           stc   r0,maskstr_dl
+           strmake logr,'maskvarval ',(maskstr,b.maskstr_dl)
+           trclog ,
+         endif
+
+* if MASKSTEM then go build internal list from stem
+         if    (cli,maskstem_dl,ne,0)
+           la    r0,maskstma
+           la    r1,maskstem_dl
+           #subr Call,MaskStmB
+         endif
+*-
+* get buffer
+*-
+         l     r15,bfrsz
+         ahi   r15,4100
+         sr    r14,r14
+         d     r14,=a(4096)
+         mhi   r15,4096
+         st    r15,vardataal
+         lr    r2,r15
+         Storage OBTAIN,length=(2),bndry=PAGE,loc=31
+         st    r1,vardataa
+         strmake logr,'storobtn ',                                     c
+               (vardataal,4,c2d),+1,(vardataa,4,c2x)
+         trclog ,
+*-
+* continue init
+*-
+         if    (cli,mchr_dl,eq,0),then=(mvi,mchr,c'M')
+         if    (cli,nchr_dl,eq,0),then=(mvi,nchr,c'N')
+         l     r14,pos                 change pos
+         bctr  r14,0                    to
+         st    r14,pos                   offset
+         l     r14,ovlpos              change pos
+         bctr  r14,0                    to
+         st    r14,ovlpos                offset
+
+*-
+* mask count
+*-
+         mvc   masknum,zero
+         if    (cli,maskdlm_dl,ne,0)
+           StrLen data=maskstr,lr=r2
+           stc   r2,maskdlm_dl
+           StrWords maskstr,(r2),dlm=maskdlm
+           st    r15,masknum
+           strmake logr,'masknum: ',(r15,,cvdr,4),                     c
+               ' dlm "',(maskdlm,1),'" masklen ',(maskdlm,1,c2d)
+           trclog ,
+         endif
+*-
+* get count from stemname.0
+*-
+         RxStemGet name=varname,base=(inpstem,b.inpstem_dl),           c
+               pnum=p0,data=(wrk256,l'wrk256)
+         lr    r5,r15        copy rc
+         lr    r4,r1         copy name length
+         lr    r6,r0         copy data length
+         clear logr
+         StrMake logr,(inpstem,b.inpstem_dl,,60),'0 rc ',(r5,,cvdr,4), c
+               ' data ',(wrk256,(r6)),lr=r2
+         if    (ltr,r5,r5,nz)
+           mvc   reason,logr
+           st    r2,reasonl
+         endif
+         Trclog ,
+         if    (ltr,r5,r5,nz),then=(#subrend,8)
+         bctr  r6,0
+         j     *+10
+         pack  dw,wrk256(*-*)
+         ex    r6,*-6
+         cvb   r8,dw
+         if    (ltr,r8,r8,z)
+           lr    r2,r15
+           strmake reason,'Empty stem',lr=r1
+           st    r1,reasonl
+           mvc   logr,reason
+           trclog ,
+           #subr exit,rc=8
+         endif
+*-
+* process stem
+*-
+         do    over(r8)
+           clear varname
+           clear logr
+           ap    inpstem#,p1
+           RxStemGet name=varname,base=(inpstem,b.inpstem_dl),         c
+               pnum=inpstem#,data=(f.vardataa,f.vardataal)
+           st    r0,vardatal
+           st    r1,varnamel
+           lr    r5,r15        copy rc
+           lr    r4,r1         copy name length
+           l     r6,vardataa   data address
+           lr    r7,r0         copy data length
+           StrMake logr,'get ',(varname,(r4),,30),                     c
+               ' rc ',(r5,,cvdr,6),                                    c
+               ' data ',(r7,,cvdr,4),+1,((r6),(r7),,60),lr=r2
+           if    (ltr,r5,r5,nz)
+             mvc   reason,logr
+             st    r2,reasonl
+           endif
+           trclog ,
+           if    (ltr,r5,r5,nz),then=(#subrend,8)
+
+* check mask, adjust test length if neccessary
+* r6  data address
+* r7  data size
+           l     r14,vardataa          data address
+           l     r15,vardatal          data length
+           l     r4,pos                test-field offset
+           ar    r4,r14                test-field address
+           if    (lt,r5,len,z),then=(lr,r5,r15) copy data length
+           ar    r15,r14               -> past data
+           ar    r5,r4
+           if    (cr,r5,gt,r15),then=(lr,r5,r15) adjust end pos
+           sr    r5,r4                 new length
+           trcblk
+           lr    r2,r4
+           s     r2,vardataa           as offset(again)
+           la    r2,1(,r2)             as pos
+           strmake logr,'pos=',(r2,,cvdr,4),' len ',(r5,,cvdr,4),      c
+               ' datalen ',(vardatal,4,c2d,4),lr=r2
+           rxsay logr,(r2)
+           clear logr
+           trcblke
+* now do test
+*  r4 -> data
+*  r5 =  data length
+           if   (cfi,r5,lt,1)          test length must be ge 1
+             la    r15,1               else set 'failed'
+           else
+             if    (icm,r6,15,maskstma,nz) maskstem anchor set?
+               la    r7,1              default = not found
+               do    forever
+                 l     r3,SLNKlstsizeo(,r6)  length
+                 ahi   r3,-slnklstpfxl       data length
+                 la    r2,slnklstpfxl(,r6)   -> data
+                 StrPatrn str=((r4),(r5)),mask=((r2),(r3)),wc=wildcd
+                 if    (ltr,r15,r15,z)
+                   sr    r7,r7         set 'match'
+                   leave
+                 endif
+                 SlnkLst next,addr=(r6)
+                 if    (ltr,r6,r1,z),then=leave
+               enddo
+               lr    r15,r7
+
+             elseif (lt,r3,masknum,nz)   multiple masks
+*              StrMake  logr,'multmask"',((r4),(r5),,60),'"'
+*              trclog ,
+               do    over(r3)
+                 StrWord maskstr,b.maskdlm_dl,(r3),dlm=maskdlm
+                 stm   r2,r3,dw          save
+                 lr    r2,r1             address
+                 lr    r3,r0             length
+                 StrMake  logr,'mask "',((r2),(r3),,60),'"'
+                 trclog ,
+                 StrPatrn str=((r4),(r5)),mask=((r2),(r3)),wc=wildcd
+                 lm    r2,r3,dw          reload
+                 if    (ltr,r15,r15,nz),and,(cli,mcnd,eq,c'A')
+                   leave ,               not found
+                 endif
+                 if    (ltr,r15,r15,z)
+                   if  (cli,mcnd,eq,c'O'),then=leave
+                   if  (cfi,r3,eq,1),then=leave
+                 endif
+               enddo
+             else ,                      single mask
+               StrPatrn str=((r4),(r5)),mask=(maskstr,b.maskstr_dl),   c
+               wc=wildcd
+             endif
+           endif
+           lr    r5,r15                  save result
+           if    (ltr,r5,r5,z)
+             asi   matchnum,1
+             trclog 'Passed..'
+           else
+             trclog 'Failed..'
+           endif
+*-
+* write stem(s)
+*-
+
+* overlay stem
+           if    (cli,ovlstem_dl,ne,0)
+             la    r1,mchr
+             if    (ltr,r5,r5,nz),then=(la,r1,nchr)
+             l     r14,vardataa
+             a     r14,ovlpos
+             mvc   0(1,r14),0(r1)
+             RxStemPut  stema=varname,base=(ovlstem,b.ovlstem_dl),     c
+               pnum=inpstem#,data=(f.vardataa,f.vardatal),namelenr=r5
+           endif
+
+* write matrix stem
+           if    (cli,mtxstem_dl,ne,0)
+             la    r6,mchr
+             if    (ltr,r5,r5,nz),then=(la,r6,nchr)
+             ap    mtxstem#,p1
+             RxStemPut  stema=varname,base=(mtxstem,b.mtxstem_dl),     c
+               pnum=mtxstem#,data=((r6),1),namelenr=r5
+           endif
+
+* write match stem
+           if    (ltr,r5,r5,z),and,(cli,matstem_dl,ne,0)
+             ap    matstem#,p1
+             RxStemPut  stema=varname,base=(matstem,b.matstem_dl),     c
+               pnum=matstem#,data=(f.vardataa,f.vardatal)
+           endif
+
+* write nomatch stem
+           if    (ltr,r5,r5,nz),and,(cli,nomstem_dl,ne,0)
+             ap    nomstem#,p1
+             RxStemPut  stema=varname,base=(nomstem,b.nomstem_dl),     c
+               pnum=nomstem#,data=(f.vardataa,f.vardatal)
+           endif
+
+* end of input
+         enddo
+
+* write matrix stem.0
+         if    (cli,mtxstem_dl,ne,0)
+           STRP2N from=mtxstem#,to=dw
+           lr    r3,r0
+           StrMake varname,(mtxstem,b.mtxstem_dl),'0',lr=r2
+           RxVPut name=(varname,(r2)),data=(dw,(r3))
+         endif
+* write match stem.0
+         if    (cli,matstem_dl,ne,0)
+           STRP2N from=matstem#,to=dw
+           lr    r3,r0
+           StrMake varname,(matstem,b.matstem_dl),'0',lr=r2
+           RxVPut name=(varname,(r2)),data=(dw,(r3))
+         endif
+* write nomatch stem.0
+         if    (cli,nomstem_dl,ne,0)
+           STRP2N from=nomstem#,to=dw
+           lr    r3,r0
+           StrMake varname,(nomstem,b.nomstem_dl),'0',lr=r2
+           RxVPut name=(varname,(r2)),data=(dw,(r3))
+         endif
+* write overlay stem.0
+         if    (cli,ovlstem_dl,ne,0)
+           STRP2N from=inpstem#,to=dw
+           lr    r3,r0
+           StrMake varname,(ovlstem,b.ovlstem_dl),'0',lr=r2
+           RxVPut name=(varname,(r2)),data=(dw,(r3))
+         endif
+* end
+         #subr exit
+         #subr drop
+
+*-
+*   Build internal list from stem
+*
+*   At entry
+*     r0  -> list anchor point
+*     r1  -> al1(l'stemname),c'stemname'
+*
+*   At exit
+*     r15  rc  0=ok, else not ok
+*-
+MaskStmB #subr ,
+         lr    r8,r0              -> list anchor
+         lr    r9,r1              -> al1(l'name),c'name'
+
+* get count from stem.0
+         llc   r2,0(r9)           get length
+         la    r1,1(r2,r9)        -> after name
+         mvi   0(r1),c'0'         make stem.0
+         RxVget name=(1(r9),1(r2)),data=(wrk256,16)
+         lr    r3,r0              datalength
+         strmake logr,'maskstem0=',(1(r9),1(r2)),'=',(wrk256,(r3))
+         trclog ,
+
+* test datatype
+         StrTest str=(wrk256,(r3)),test=num
+         if    (nz)
+           reason 'Maskstem.0 not numeric',8
+           #subr exit,rc=8
+         endif
+
+* get filter list
+         StrD2C from=(wrk256,(r3)),reg=r7
+         zap   maskstmp,p0
+         do    over(r7)
+           ap    maskstmp,p1
+           RxStemGet name=wrk256,base=(1(r9),b.0(r9)),                 c
+               data=(wrk256,256),pnum=maskstmp
+           if    (ltr,r15,r15,nz),then=iterate
+           lr    r3,r0            copy length
+           strmake logr,'maskdata=',(wrk256,(r3))
+           trclog ,
+           SlnkLst add,size=(r3),addr=(r8),data=(wrk256,(r3))
+           lr    r8,r1            copy new address
+         enddo
+
+         #subr exit
+         #subr drop
+
+*-
+* Dynamic area
+*-
+
+LclStor   Dsect
+sa1       ds    (4*18)f                save areas
+sapooln   ds    0a                     end of save areas
+*-
+blank     ds    cl150
+fw        ds    f
+dw        ds    d
+rc        ds    a
+retval    ds    2a(0)
+zero      ds    a
+p0        ds    pl4
+p1        ds    pl4
+logrl     ds    a
+logr      ds    cl120
+reasonl   ds    a
+reason    ds    cl120
+varnamel  ds    a
+varname   ds    cl200
+inpstem#  ds    pl4
+matstem#  ds    pl4
+nomstem#  ds    pl4
+mtxstem#  ds    pl4
+ovlstem#  ds    pl4
+masknum   ds    a
+matchnum  ds    a
+mkresult  ds    x
+vardataa  ds    a
+vardataal ds    a
+vardatal  ds    a
+maskstma  ds    a
+maskstmp  ds    pl4
+*-
+         RexxMacs ds
+         ds    0d
+         StrParse area
+*-
+         ds    0d
+wrk256   ds    xl256
+*-
+LclStorL equ   *-LclStor
+
+         Dsect
+         RexxMacs dsect
+
+         End
+//*
+//L.SYSLMOD DD DISP=SHR,DSN=CBT669.LINKLIB(RXPATTRN)
+//*.SYSLMOD DD DSN=&YOUR.LINKLIB(RXPATTRN)
+//*
+//* Production version is in LPALIB
+//*
+//* activate dynamic:
+//*   SETPROG LPA,ADD,MODNAME=RXPATTRN,DSNAME=CBT669.LINKLIB
+//*
+//IVP1     EXEC PGM=IKJEFT1B,PARM='%RXPN&IVP'
+//STEPLIB  DD DISP=SHR,DSN=CBT669.LINKLIB
+//*TEPLIB  DD DISP=SHR,DSN=*.A.L.SYSLMOD
+//SYSEXEC  DD DISP=SHR,DSN=CBT669.PP.RXPATTRN.LIB
+//SYSTSPRT DD SYSOUT=*,OUTLIM=(5000)
+//SYSTSIN  DD DUMMY
+//*

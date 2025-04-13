@@ -1,0 +1,17 @@
+History
+001  2017-01-12  Initial version
+002  2017-03-13  Add WTO
+003  2018-08-18  Make reentrant
+                 Fix return of the VERSION info
+004  2018-12-05  Internal changes, use macros #MODULE and #SUBR
+005  2019-05-26  Can keep module in JPAQ for entire job session.
+006  2019-10-22  Some cleanup and beautification
+007  2021-05-23  Set NUM=100 in OPCOMM INIT to allow for queued responses.
+                 Set variable RXOPCOMM_MORE='Y' if queued responses.
+008  2021-05-25  New command GETLIST - return responses in a stem.
+                 New WTO option for INIT and TERM.
+                 GET will now do an implicit INIT if this was not done
+                 previously.
+                 Fixed WTO option did not work.
+                 WTO option H changed to P or J, H is retained for
+                 consistency.

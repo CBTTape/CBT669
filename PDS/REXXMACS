@@ -1,0 +1,1871 @@
+ ago .rexxmacsdocn
+REXXMACS - Interface macros for REXX
+
+Introduction
+
+ REXXMACS is a set of macros to help you accessing REXX services
+ from an assembler program. Most are for REXX variable access, but
+ there are others.
+
+ REXXMACS is required for seting up the environment, RXINIT is
+ required for anything but RXEXEC. The rest are used as required.
+
+ **Warning, the 2024-04-16 update increases the size of the data area
+ slightly.
+
+REXXMACS is an assembler copybook, use as follows:
+
+          Print off
+          Copy RexxMacs
+          Print on
+
+Sample
+
+          ereg  0,1
+          RxInit parmarea=arg1
+          ltr   r0,r0
+          jnz   *not REXX*
+          RxSay 'Howdy folks'
+          RxVget name='testvar',data=arg2
+          lr    r2,r0         copy data length
+          RxSay arg2pt,l'arg2pt+larg2
+          mvc   rc,=c'04'
+          RxRetval rc,l'rc
+          . . .
+          RexxMacs ds
+ initmsg  dc    c'Howdy folks'
+ rc       dc    c'00'
+ arg1     dc    cl240' '
+ arg2pt   dc    c'testvar='
+ arg2     dc    cl120' '
+          . . .
+          RexxMacs ds
+          RexxMacs dsect
+
+Overview
+
+ REXXMACS   Define data areas and dummy sections (required)
+ RXINIT     Setup interface (required)
+ RXRETVAL   Set return value
+ RXSAY      Say text
+ RXSTACK    Access the data stack
+ RXSTEMGET  Build stemname, then get data
+ RXSTEMNAME Build stem name
+ RXSTEMNUM  Build stem number
+ RXSTEMPUT  Build stemname, then write data
+ RXTERM     Terminate with return code
+ RXVDROP    Drop (delete) a variable
+ RXVGET     Get variable
+ RXVGETDS   Get variable directly to getmained storage
+ RXVNEXT    Get variables in sequence, not by name
+ RXVPUT     Write variable
+ RXEXEC     Start a REXX pgm from a (non-TSO) program.
+
+ Detailed descriptions is found in the macros themselves.
+
+History
+ 2017-09-28   enhance parm handling for RXSAY
+ 2018-06-16   new macro RXSTACK
+              new macro REXXMACSMODS
+ 2018-10-29   small fix to RXINIT test for REXX
+ 2019-06-17   add TDL=reg to RxVNext stats
+ 2019-09-01   add 1 as default 2nd parm for RXINIT PARMVECT
+ 2019-09-12   new internal macro RXLA, change all '$LA' to 'RXLA'
+ 2019-10-03   fix default data length in RXVACC
+ 2019-10-25   fix RXSAY literal length
+ 2020-11-20   add EOF flag
+ 2021-02-03   add 'namelenr' to RxStemGet.
+ 2021-06-03   change RXLA to SETREG
+ 2021-09-08   add DROP feature to RXVACC and new macro RXVDROP.
+ 2021-10-01   rewrite documentation
+ 2021-10-15   RXSTACK rewrite for DATA= clarification
+ 2022-02-09   remove the description of the RXINIT DS operand.
+              add copies of SETREG and STRCOPY as RXSETREG and
+              RXSTRCOPY respectively.
+ 2022-09-07   add LINK option to RXINIT.
+ 2022-09-16   add INIT option to RXINIT.
+              add 2nd option NOINIT to RXINIT.
+ 2022-12-22   fix abend S0C4 when no parm, and error when no parm
+ 2022-12-23   add RXVGETDS
+ 2023-12-30   add zrx_Stka (address of stack manager)
+ 2024-01-10   add l r0,zrx_enba to RXSAY and RXSTACK.
+ 2024-03-06   rename EnvBlka -> EvalBlka
+ 2024-03-24   add RXEXEC.
+ 2024-04-12   New version of internal macro RXSETREC - allow ff.addr
+ 2024-04-16   New field zrx_getdl for VGET and NEXT, contains actual
+              size of data retrieved, irrespective of truncation.
+ 2024-04-28   Redesign the RXEXEC macro parameters.
+ 2024-04-29   Add PARM= to the RXEXEC macro parameters.
+
+.rexxmacsdocn anop
+
+         Macro
+.*-      RXINIT
+.* RxInit - initialise interface
+.*
+.* Parameters
+.*
+.*  first positional
+.*   LINK             Locate ENVBLOCK using LINK instead of r0.
+.*                    Only valid additional parm is NOREXX.
+.*   STD              Standard initiaization via r0 and r1. Default.
+.*   INIT             Initialize fields only, not the interface. This
+.*                    is for when you have both LINK and STD calls in
+.*                    the same module and wish to save on instructions.
+.*   null             Generate standard initialization
+.*
+.*  Second positional
+.*   NOINIT           Do not initialize control block after init. Used
+.*                    when you have a seperate RXINIT INIT.
+.*
+.*  keywords
+.*   PARMAREA=address Copy 1st or only parm to 'address'. R15 will
+.*                    retain length of the data copied.
+.*   PARMLIST=addr1,..,adrn  Copy arguments to local storage with
+.*                    length prefix. Each addrx must include a field
+.*                    length if not implied like (address,length).
+.*                    'length' may be a value, (register), f.addr or
+.*                    A for storing the address instead of the value.
+.*                    For each argument a structure is build:
+.*                      arg1_fs ds x  field length
+.*                      arg1_ds ds x  data length
+.*                      arg1    ds c  data
+.*                    Samples
+.*                      RxInit parmlist=string,pattern
+.*                      RxInit parmlist=((string,A),(pattern,A))
+.*   PARMVECT=(addr,count)   Copy argument address ad length as
+.*                    fullword pairs.
+.*                    Sample
+.*                         RxInit parmvect=(pl,4)
+.*                         lm    r2,r3,pl   addr,length of 1st parm
+.*                         lm    r4,r5,pl+8 addr,length of 2nd parm
+.*                      pl  dc  (4*2)a(0)
+.*
+.*   NOPARM=address   Jump to 'address' it no parameter is supplied.
+.*   NOREXX=address   Jump to 'address' it no REXX environment is
+.*-
+         RxInit &parmlist=,&parmarea=,&norexx=,&noparm=,&parmvect=,    c
+               &print=NOGEN
+         gbla  &RXPIC
+         gblc  &RXPIN(20),&RXPIL(20)
+         lclc  &q,&l,&s,&wl,&name,&len,&pa,&pl,&norexxa
+         lcla  &n,&p,&ofs,&fl
+&l       setc  'rxi&sysndx'
+&norexxa setc  '&norexx'
+         aif   (k'&norexx gt 0).nrx1n
+&norexxa setc  '&l.n'
+.nrx1n   anop
+         cnop  0,4
+         aif   (n'&syslist eq 0).std
+         aif   (k'&syslist(1) eq 0).std
+&q       setc  Upper('&syslist(1)')
+         aif   ('&q' eq 'LINK').link
+         aif   ('&q' eq 'STD').std
+         aif   ('&q' eq 'INIT').comblki
+         mnote 8,'**bad syslist 1'
+         mexit
+.*
+.link    anop  ,                       new 2022-09-07
+         xc    zrx_area(zrx_areal),zrx_area
+         xc    zrx_wrk,zrx_wrk
+         la    r1,=cl8'FINDENVB'
+         st    r1,zrx_p1               save in parmlist
+         la    r1,zrx_ebp
+         st    r1,zrx_p6               save in parmlist
+         la    r1,zrx_rsn
+         st    r1,zrx_p7               save in parmlist
+         oi    zrx_p7,x'80'            set VL
+         la    r1,zrx_wrk              paramater list
+         Link  EP=IRXINIT
+         lt    r15,zrx_ebp
+         jz    &norexxa
+         lr    r0,r15
+         xc    zrx_wrk,zrx_wrk
+&q       setc  Upper('&syslist(2)')
+         aif   ('&q' eq 'NOINIT').loadr0
+         ago   .comblki
+.*
+.std     anop
+.* note that r0 and r1 must contain the original values.
+.* data block must be generated using RxInit DB macro call.
+         xc    zrx_area(zrx_areal),zrx_area
+         stm   r0,r1,zrx_r0            save entry r0,r1
+* test for REXX envblock
+         lr    r14,r0                  -> envblock (hopefully)
+         clc   =cl8'ENVBLOCK',0(r14)
+         je    &l.b
+         xc    zrx_r0,zrx_r0
+         j     &norexxa                no REXX
+&l.b     ds    0h
+* end of test for REXX envblock
+         using efpl,r1                 point to parmlist
+         mvc   zrx_ebp,efpleval        -> evaluation block pointer
+         drop  r1
+&q       setc  Upper('&syslist(2)')
+         aif   ('&q' eq 'NOINIT').loadr0
+.*
+.comblki anop
+         RxComBlk init                 GET/PUT comblk
+.*
+         lr    r15,r0
+* get interface routine addresses
+         using envblock,r15
+         l     r15,envblock_irxexte    rexx vector of external entries
+         using irxexte,r15
+         mvc   zrx_ComA,irxexcom       -> variable access routine
+         mvc   zrx_SayA,irxsay         -> SAY instruction routine
+         mvc   zrx_StkA,irxstk         -> stack manager
+         drop  r15
+         aif   (k'&parmlist gt 0).prminit
+         aif   (k'&parmvect gt 0).prmvect
+         aif   (k'&parmarea gt 0).prmarea
+         ago   .loadr0
+.* Copy parm to area
+.prmarea anop
+         l     r2,zrx_r1               old r1
+         using efpl,r2                 point to parmlist
+         l     r2,efplarg              -> arguments table
+         drop  r2
+         ltr   r2,r2                   test no
+         jz    &l.n                      input
+         cli   0(r2),x'FF'             end of source list?
+         je    &l.n                    yes
+         lm    r14,r15,0(r2)           source address and length
+         ltr   r15,r15                 zero length?
+         jnz   &l.c                    ok, go copy
+         sr    r15,r15                 just in case
+         j     &l.n
+&l.c     bctr  r15,0                   mch length
+         mvc   &parmarea.(*-*),0(r14)
+         ex    r15,*-6
+         la    r15,1(,r15)             reinstate length
+         ago   .loadr0
+.*
+.* Get positional parameters
+.*
+.PrmInit Anop
+.*
+*- init parameter address list --------------------------------
+.*
+         aif   (n'&parmlist eq 0).noparm
+&RXPIC   seta  n'&parmlist
+&n       seta  1
+&ofs     seta  0
+         la    r1,zrx_parmarea
+.prmi010 anop
+&name    setc  '&parmlist(&n,1)'
+         la    r14,&name._fs
+         st    r14,&ofs.(,r1)
+&ofs     seta  &ofs+4
+&len     setc  '&parmlist(&n,2)'
+&RXPIN(&n) setc  '&name'
+&RXPIL(&n) setc  '&len'
+         aif   ('&len' ne 'A').prmi110
+         xc    &name._fs(10),&name._fs
+         ago   .prmi200
+.prmi110 anop
+         mvi   &name._fs,&len
+         mvi   &name._ds,0
+         mvi   &name,c' '
+         aif   ('&len' eq '1').prmi200
+         mvc   &name.+1(&len-1),&name
+.prmi200 anop
+&n       seta  &n+1
+         aif   (&n le n'&parmlist).prmi010
+&ofs     seta  &ofs-4
+         oi    &ofs.(r1),x'80'
+.*
+*- obtain parameters ------------------------------------------
+.*
+.PrmGet  Anop
+         l     r2,zrx_r1               old r1
+         using efpl,r2                 point to parmlist
+         l     r2,efplarg              -> arguments table
+         drop  r2
+         la    r3,zrx_parmarea
+         ltr   r2,r2                   test no
+         jz    &l.n0                     input
+&l.1     equ   *
+         cli   0(r2),x'FF'             end of source list?
+         je    &l.n0
+         l     r1,0(,r3)               output area
+         la    r1,0(,r1)               clear vl bit
+         lm    r14,r15,0(r2)           source address and length
+         ltr   r14,r14                 check zero address
+         jz    &l.3                    then go get next
+         ltr   r15,r15                 zero length
+         jz    &l.3                    then go get next
+.* r1 -> al1(field length,data length),c'data'
+         ic    r1,0(,r1)               load target field length
+         sll   r1,24                   drop upper
+         srl   r1,24                     3 bytes
+.* store address/length pair
+         ltr   r1,r1                   field len=0 => store addresses
+         jnz   &l.2
+         l     r1,0(,r3)               output area
+         la    r1,0(,r1)               clear vl bit
+         stm   r14,r15,2(r1)
+         mvi   1(r1),8                 set data length
+         j     &l.3
+.* get text data
+&l.2     cr    r15,r1
+         bnh   *+6
+         lr    r15,r1                  reset to max
+         l     r1,0(,r3)               output area
+         stc   r15,1(,r1)              save data length
+         bctr  r15,0
+         mvc   2(*-*,r1),0(r14)
+         ex    r15,*-6
+&l.3     tm    0(r3),x'80'             end of target list?
+         jo    &l.n0                   yes
+.*       jo    &l.n4                   not so good
+         la    r2,8(,r2)
+         la    r3,4(,r3)
+         j     &l.1
+&l.n0    sr    r15,r15
+         j     &l.n
+&l.n4    la    r15,4
+         ago   .loadr0
+.*
+.* Copy parameter address / length pairs
+.*
+.PrmVect Anop
+         l     r1,zrx_r1               old r1
+         using efpl,r1                 point to parmlist
+         l     r1,efplarg              -> arguments table
+         drop  r1
+         RXSETREG r14,&parmvect(1)     -> output area
+         RXSETREG r15,&parmvect(2),1   max number of pairs
+&l.pv1   tm    0(r1),x'80'             end of source list?
+         jo    &l.pv0
+         mvc   0(8,r14),0(r1)          copy address and length
+         la    r1,8(,r1)
+         la    r14,8(,r14)
+         bct   r15,&l.pv1              get next
+         la    r15,1                   set 'overflow'
+         j     &l.n
+&l.pv0   sr    r15,r15
+         ago   .loadr0
+.* load r0 from area
+.loadr0  anop
+&l.n     l     r0,zrx_r0               nz if REXX, z if not REXX
+.noparm  anop
+.x       Mend
+
+*--------------------------------------------------------------
+
+         Macro
+.*-      RXCOMBLK
+.* Comm-block for VGET / VPUT
+.* Internal macro called by RXINIT and REXXMACS respectively
+.*-
+         RxComBlk &what,&stat,&prefix=zrx_,&print=NOGEN
+         lclc  &pf,&s
+&pf      setc  '&prefix'
+&s       setc  Upper('&what')
+         aif   ('&s' eq 'DS' or k'&what eq 0).ds
+         aif   ('&s' eq 'DSECT').dsect
+         aif   ('&s' eq 'INIT').init
+         aif   ('&s' eq 'TEST').test
+         mnote 'RXCOMBLK Invalid call: &s'
+         mexit
+.init    anop
+* init VGET / VPUT comblk begin
+         la    r14,=cl8'IRXEXCOM'
+         st    r14,&pf.ComBlkp1
+         la    r14,=a(0)
+         st    r14,&pf.ComBlkp2
+         st    r14,&pf.ComBlkp3
+         st    r14,&pf.ComBlkp5
+         la    r14,&pf.ShVb
+         st    r14,&pf.ComBlkp4
+         la    r14,&pf.XComRc
+         st    r14,&pf.ComBlkp6
+         oi    &pf.ComBlkP6,x'80'
+* init VGET / VPUT comblk end
+         Mexit
+.dsect   anop
+         gblb  &rexxmacs_dsect
+         gblb  &rexxmacs_dsect
+         aif   (&rexxmacs_dsect).x
+&rexxmacs_dsect setb 1
+RxComBlK DSECT
+.ds      anop
+&pf.ComBlk   ds    0x
+&pf.ComBlkp1 ds    a                   -> EXCOM eyecatcher
+&pf.ComBlkp2 ds    a                   Reserved
+&pf.ComBlkp3 ds    a                   Reserved
+&pf.ComBlkp4 ds    a                   -> 1st SVHB
+&pf.ComBlkp5 ds    a                   -> Env-block or zero
+&pf.ComBlkp6 ds    a                   -> Return code field
+*-
+&pf.XComRc   ds    a
+&pf.StAdjCnt ds    a                   storage adjustment count
+&pf.NextCnt  ds    a                   'next' counter
+&pf.getdl    ds    a                   length of data retrieved
+*-
+&pf.ShVb     ds    0d
+&pf.ShVbNext ds    a                   -> next  ShVb
+&pf.ShVUser  ds    f                   Used by 'next' function
+&pf.ShVCode  ds    0c                  F=Fetch, S=Set (put)
+&pf.ShVbFunc ds    c                   F=Fetch, S=Set (put)
+&pf.ShVRet   ds    0x                  Return code area
+&pf.ShVbRc   ds    x                   Return code area
+&pf.last     equ   x'02'               last var transferred flag
+&pf.eof      equ   x'02'               last var transferred flag
+&pf.trunc    equ   x'04'               'truncated' flag
+             ds    h                   Reserved
+&pf.ShVbFbl  ds    a                   Length of fetch buffer
+&pf.ShVbVna  ds    a                   -> variable name
+&pf.ShVbVnl  ds    a                   length of variable name
+&pf.ShVbVba  ds    a                   -> value buffer
+&pf.ShVbVbl  ds    a                   Length of fetched value
+&pf.bufrl    equ   &pf.ShVbFbl,4
+&pf.namea    equ   &pf.ShVbVna,4
+&pf.namel    equ   &pf.ShVbVnl,4
+&pf.dataa    equ   &pf.ShVbVba,4
+&pf.datal    equ   &pf.ShVbVbl,4
+&pf.ShVbl    equ   *-&pf.ShVb
+&pf.ComBlkl  equ   *-&pf.ComBlk
+.* names from the manual
+&pf.ShvBufl  equ   &pf.ShVbFbl,4
+&pf.ShvNama  equ   &pf.ShVbVna,4
+&pf.ShvNaml  equ   &pf.ShVbVnl,4
+&pf.ShvVala  equ   &pf.ShVbVba,4
+&pf.ShvVall  equ   &pf.ShVbVbl,4
+         Mexit
+.TEST    anop
+.* Test return code flags stored in SHVRET:
+.*  SHVCLEAN EQU X'00' Execution was OK
+.*  SHVNEWV  EQU X'01' Variable did not exist
+.*  SHVLVAR  EQU X'02' Last variable transferred (for "N")
+.*  SHVTRUNC EQU X'04' Truncation occurred during "Fetch"
+.*  SHVBADN  EQU X'08' Invalid variable name
+.*  SHVBADV  EQU X'10' Value too long
+.*  SHVBADF  EQU X'80' Invalid function code (SHVCODE)
+.* Special flags: LAST
+&s       setc  Upper('&stat')
+         aif   ('&s' ne 'EOF').test999
+         tm    &prefix.SHVRET,SHVLVAR  last??
+         mexit
+.test999 tm    &prefix.SHVRET,&s
+         mexit
+.x       Mend
+
+*--------------------------------------------------------------
+
+         Macro
+.*-      REXXMACS
+.* Generate data areas
+.* Usage:
+.*       RexxMacs dsect
+.*-
+         REXXMACS &what,&comblk=Y,&cbpfx=zrx_,&print=NOGEN
+         lcla  &sln,&n,&l
+         lclc  &sl,&c,&name,&len,&s,&cbp
+         gbla  &RXPIC
+         gblc  &RXPIN(20),&RXPIL(20),&RXCBPFX
+.* select action
+         aif   (k'&what eq 0).defsect
+&s       setc  Upper('&what')
+         aif   ('&s' eq 'DS').DefSect
+         aif   ('&s' eq 'DSECT').DefSect
+         aif   ('&s' eq 'SET').set
+         mnote 8,'** Invalid p1'
+         mexit
+.* set global settings - under construction
+.SET     anop
+         aif   (k'&cbpfx eq 0).cbpfxn
+&rxcbpfx setc  '&cbpfx'
+.cbpfxn  anop
+         mexit
+.*-
+.* Datablock and dummy sects common to the macro seet
+.*-
+.DEFSECT anop
+&sln     seta  &sln+1
+         aif   (&sln gt N'&syslist).x
+&sl      setc  Upper('&syslist(&sln)')
+         aif   ('&sl' eq 'DS').ds
+         aif   ('&sl' eq 'DSECT').dsect
+&sl      setc  'syslist(&sln)'
+         mnote 8,'*** Invalid option: &sl'
+         mexit
+.DS      anop
+*-
+* Data areas for the REXXMACS set
+*-
+*
+*- global area
+zrx_area     ds    0a
+zrx_envba    ds    0a
+zrx_r0       ds    a
+zrx_r1       ds    a
+zrx_Excoma   ds    0a
+zrx_ComA     ds    a                   address of the IRXEXCOM module
+zrx_SayA     ds    a                   address of the IRXSAY module
+zrx_StkA     ds    a                   address of the IRXSTK module
+zrx_EvalBlka ds    0a
+zrx_ebp      ds    a                   evaluation block pointer
+zrx_fw       ds    f
+zrx_rsn      equ   zrx_fw,4
+zrx_dw       ds    0d
+zrx_wrk      ds    20a
+zrx_wrk_len  equ   *-zrx_wrk
+             org   zrx_wrk
+zrx_pl       ds    0a
+zrx_p1       ds    a
+zrx_p2       ds    a
+zrx_p3       ds    a
+zrx_p4       ds    a
+zrx_p5       ds    a
+zrx_p6       ds    a
+zrx_p7       ds    a
+zrx_p8       ds    a
+zrx_p9       ds    a
+zrx_p10      ds    a
+             org
+*-Comm-block
+         aif   ('&comblk' ne 'y' and '&comblk' ne 'Y').comblkn
+             RxComBlk
+.comblkn anop
+*-end of area
+zrx_areal    equ   *-zrx_area
+*- parameter area, &rxpic parameters handled
+zrx_parmarea ds    0a
+         aif   (&RXPIC eq 0).DefSect
+          ds    &RXPIC.a       parm vector
+&n       seta  1
+.parmdef aif   (&n gt &RXPIC).DefSect
+&name    setc  '&RXPIN(&n)'
+&len     setc  '&RXPIL(&n)'
+         aif   ('&len' ne 'A').mpa010
+         ds     0a                    align data
+         ds     h                       on fullword
+&len     setc  '8'                    room for 2 adress fields
+.mpa010  anop
+&name._fs ds    al1
+&name._ds ds    al1
+&name     ds    cl(&len)
+&n       seta  &n+1
+         ago   .parmdef
+*-
+.Dsect   anop
+*-
+* Dsects for the REXXMACS set
+*-
+         Push  print
+         Print &print
+         Dsect
+         IRXEFPL                      REXX EXTERNAL FUNCTION
+         IRXEVALB                     REXX EVALUATION BLOCK
+         IRXENVB                      REXX ENVIRONMENT BLOCK
+ENVBLOCK_len equ *-ENVBLOCK
+         IRXARGTB DECLARE=YES         REXX ARGUMENT TABLE
+         IRXEXTE
+         IRXSHVB
+         IRXEXECB                     REXX execution block
+         Pop   print
+*-
+         ago   .DefSect
+.X       Mend
+
+         Macro
+.*-
+.* REXX interface macro - terminate with return code
+.* Parms
+.*   EXIT=N      do not terminate program, allow for freemains etc
+.*   RC=         number or (register)
+.*   RCH=address address of halfword containing the rc
+.*   RCF=address address of fullword containing the rc
+.* Default rc=0
+.*-
+&mlbl    RxTerm &rc=,&data=,&exit=Y
+         lclc  &data1,&data2,&l
+&l       setc  'z&sysndx'
+&data1   setc  '&data(1)'
+&data2   setc  '&data(2)'
+&mlbl    cnop  0,4
+         l     r14,zrx_ebp             -> evaluation block pointer
+         l     r14,0(r14)              point to evalblock
+         using evalblock,r14
+         aif   (k'&rc gt 0).rc
+         aif   (k'&data gt 0).data
+&data1   setc  '=c''0000'''
+&data2   setc  '4'
+         ago   .data
+.rc      RXSETREG r15,&rc              rc
+         cvd   r15,evalblock_evdata+8
+         unpk  evalblock_evdata(8),evalblock_evdata+8
+         oi    evalblock_evdata+7,x'F0'
+         mvc   evalblock_evlen,=a(8)
+         ago   .b
+.data    anop
+         la    r2,&data2             length
+         l     r15,EVALBLOCK_EVSIZE   for data size check
+         sll   r15,3                  doublewords to bytes
+         cr    r2,r15
+         jnh   &l.b
+         lr    r2,r15               use max
+&l.b     st    r2,evalblock_evlen   store reply length
+         ltr   r2,r2
+         jz    &l.c
+         bctr  r2,0
+         mvc   evalblock_evdata(*-*),&data1
+         ex    r2,*-6
+&l.c     equ   *
+.b       drop  r14
+&q       setc  Upper('&exit')
+         aif   ('&q' eq 'N').x
+         sr    r15,r15                 caller must use the RC value
+         pr
+.x       Mend
+
+         Macro
+.*-
+.* REXX interface macro - store return value
+.* Parms
+.*   data        address of the data to return
+.*   size        size of the data to return
+.*-
+&mlbl    RxRetVal &data,&size,&wto=N
+         lclc  &l
+&l       setc  'zrx&sysndx'
+&mlbl    cnop  0,4
+         RXSETREG r0,&size
+         l     r14,zrx_ebp             -> evironment block pointer
+         l     r14,0(r14)              point to evalblock
+         using evalblock,r14
+         l     r1,evalblock_evsize    for data size check
+         drop  r14
+         sll   r1,3                   doublewords to bytes
+         ahi   r1,-16                 minus header
+         cr    r0,r1                  fits in current buffer ?
+         jnh   &l.c                   yes, go copy
+.*-
+* get a bigger buffer
+.*-
+         aif   ('&wto' ne 'Y').wton
+         wto   'RxRetval expand'
+.wton    anop
+         la    r14,=cl8'GETBLOCK'
+         la    r15,zrx_p5             new evaluation block addr
+         stm   r14,r15,zrx_p1
+         st    r0,zrx_p4              store length
+         la    r14,zrx_p4             -> length
+         st    r14,zrx_p3             save
+         oi    zrx_p3,x'80'           end-of-parm flag
+.*
+         load  EP=IRXRLT
+         lr    r15,r0                 copy module address
+         l     r0,zrx_envba           envbp (optional)
+         la    r1,zrx_p1              -> start of parmlist
+         basr  r14,r15
+         st    r15,zrx_p6             save rc
+.*
+         delete EP=IRXRLT
+         icm   r15,15,zrx_p6          reload rc, test cond
+         jnz   &l.x                   nope
+.*-
+* copy data to buffer
+.*-
+&l.c     l     r14,zrx_ebp             -> evironment block pointer
+         l     r14,0(r14)              point to evalblock
+         using evalblock,r14
+.* just use copy-long, simpler and dont happen that often
+         RXSETREG r0,&data
+         RXSETREG r1,&size
+         st    r1,evalblock_evlen     store length
+         la    r14,evalblock_evdata
+         drop  r14
+         lr    r15,r1                 copy size
+         mvcl  r14,r0
+         sr    r15,r15
+&l.x     equ   *
+.x       Mend
+
+
+         Macro
+         RxStemName &base=,&stema=,&num=,&pnum=,&clear=n
+.*-
+.* Build a rexx stemname composed by a base, including the dot,
+.* concatenated with the number.
+.*   base=(address,length)
+.*   name=address
+.*   num=binary number
+.*   pnum=packed-decimal number - note must be pl4'n'
+.*   clear=Y   clear varname before build-up
+.* Sample:
+.*     RxStemName base=(stemname,7),stema=varname,num=f.seqnr
+.*-
+         lcla  &n
+         lclc  &base1,&base2
+&base1   setc  '&base(1)'
+&base2   setc  '&base(2)'
+         aif   ('&base1 '(1,1) ne '''').b1litn
+&n       seta  k'&base1-2
+&base2   setc  '&n'
+         ago   .basen
+.b1litn  anop
+         aif   (k'&base2 ne 0).b2nuln
+&n       seta  l'&base1
+&base2   setc  '&n'
+.b2nuln  anop
+.basen   anop
+.*       aif   (n'&base ne 2 or k'&stema eq 0).err1
+         aif   ('&clear' ne 'Y' and '&clear' ne 'y').clrn
+         mvi   &stema,c' '
+         mvc   &stema.+1(l'&stema.-1),&stema
+.clrn    anop
+         RXSETREG r14,&base1           addr
+         RXSETREG r15,&base2           length
+         bctr  r15,0                   mch length
+         mvc   &stema.(*-*),0(r14)     get stem base
+         ex    r15,*-6
+         RXSETREG r14,&stema+1(r15)    -> number area
+         RxStemNum (r14),bin=&num,dec=&pnum
+         RXSETREG r14,&base2           stem base length
+         ar    r15,r14                 plus number length
+         lr    r0,r15                  copy length
+         mexit
+.err1    mnote 8,'**STEMNAME Missing base or name'
+         Mend
+
+         Macro
+.*-
+.* Build a rexx stemnumber
+.* Parameters
+.*   addr      build-up area, must be large enough to hold the result
+.*   bin       value, (reg) or f.addr
+.*   dec       value address
+.* Samples
+.*         RxStemNum value,bin=f.xval
+.*         lr    r2,r15        copy length
+.*         RxStemNum value,dec=pval
+.*         lr    r2,r15        copy length
+.*  value  dc    cl8' '
+.*  xval   dc    a(123)
+.*  pval   dc    p'456'
+.*-
+         RxStemNum &addr,&dec=,&bin=
+         lclc  &l
+&l       setc  'R&sysndx'
+         mvc   40(8,r13),=x'4020202020202020'
+         aif   (k'&bin eq 0 and k'&dec eq 0).err1
+         aif   (k'&dec gt 0).dec
+         RXSETREG r15,&bin             seqnr
+         cvd   r15,24(r13)
+         edmk  40(8,r13),28(r13)       unpack
+         ago   .nlen
+.dec     edmk  40(8,r13),&dec          unpack
+.nlen    anop
+         bnz   &l.cl                   nonzero value
+         la    r1,=c'0'                -> c'0'
+         sr    r15,r15                 mchlen=0
+         b     &l.m
+.* r1 -> 1st non-zero byte
+&l.cl    la    r15,48(,r13)            calc
+         sr    r15,r1                    length
+         bctr  r15,0                   mch length
+&l.M     RXSETREG r14,&addr            -> target area
+         mvc   0(*-*,r14),0(r1)        append seq number
+         ex    r15,*-6
+         la    r15,1(,r15)             reinstate length
+         mexit
+.err1    mnote 8,'**STEMNUM Missing number parm'
+         Mend
+
+         Macro
+.*-
+.* Say
+.*
+.* Parameters
+.*   1  address    label, (reg) or 'literal'
+.*   2  length     value, (reg) or null if address is literal
+.*
+.* sets up 5 fullword work area
+.*   1  -> 'WRITE'
+.*   2  -> address of dataaddress field
+.*   3  -> address of length field
+.*   4  dataaddress field
+.*   5  length field
+.*-
+&mlbl    RXSAY &adr,&len,&wrk=zrx_wrk
+         gblc  &$setreglc
+&mlbl    la    r14,=cl8'WRITE'         -> operation
+         RXSETREG r15,&adr             -> data
+         RXSETREG r0,&len,&$setreglc,l'&adr length
+         stm   r15,r0,&wrk+12
+         la    r15,&wrk+12
+         la    r0,&wrk+16
+         stm   r14,r0,&wrk
+         oi    &wrk+8,x'80'            set end of list
+         l     r0,zrx_envba            -> ENVBLOCK
+         La    R1,&wrk
+         L     R15,zrx_SayA            address of module
+         Basr  R14,R15
+         Mend
+
+         MACRO
+.*-      RXVACC
+.* REXX get, put or drop variable.
+.*
+.* Can be used directly, but should really be used through the
+.* RXVGET, RXVPUT, RXVDROP and RXSTEMPUT macros.
+.*
+.* Required dsects: IRXENVB IRXEXTE
+.* you must use the PL expansion for either GET or PUT
+.* The INIT call is done in RXINIT.
+.*
+.* Parameters, see the RXVGET, RXVPUT, RXVDROP and RXVNECT macros
+.* later.
+.*
+.* Note that the direct interface to variables is used, meaning
+.* that simple symbols must be valid REXX variable names (that is,
+.* in uppercase and not starting with a digit or a period), but in
+.* compound symbols any characters (including lowercase, blanks,
+.* and so on) are permitted following a valid REXX stem.
+.*
+.*
+.* Sample:
+.*           RxVacc init,enva=zrx_envba,pl=vapl
+.*
+.*           RxVacc get,name=('TESTVAR1',8),data=(value,l'value)
+.*           l     r2,vaplShVbVbl       actual data length
+.*
+.*           mvlit value,'finally weekend'
+.*           la    r2,15
+.*           RxVacc put,name=('TESTVAR1',8),data=(value,(r2))
+.*
+.*  vapl     RxVacc pl
+.*  value    dc    cl100' '
+.*-
+&mlbl    RXVACC &what,&name=,&data=,&envptr=,&st=,&sth=,&src=,         c
+               &reg=r14,&enva=zrx_envba,&comblk=zrx_
+         lclc  &que,&lbl,&c,&lsrc,&lpl,&l,&s,&cb
+         lcla  &m,&n,&i,&ln,&p
+         gblc  &$setreglc
+&l       setc  'z&sysndx'
+&cb      setc  '&comblk'
+&que     setc  Upper('&what')
+&lbl     setc  'RXV&sysndx'
+&mlbl    ds    0h
+         aif   ('&que' eq 'GET').get
+         aif   ('&que' eq 'PUT').put
+         aif   ('&que' eq 'NEXT').next
+         aif   ('&que' eq 'DROP').drop
+         aif   ('&que' eq 'RESET').reset
+         Mnote 8,'*** invalid parm: &what'
+         Mexit
+.*-get
+.Get     Anop
+         mvi   &cb.ShVbFunc,C'F'           fetch
+         ago   .call
+.*-getnext prep
+.Next    Anop
+         mvi   &cb.ShVbFunc,C'N'           fetch
+         ago   .call
+.*-put
+.Put     Anop
+         mvi   &cb.ShVbFunc,C'S'           set
+         ago   .call
+.*-drop
+.Drop    Anop
+         mvi   &cb.ShVbFunc,C'D'           drop
+         ago   .call2                      no data for drop
+.call    Anop
+         aif   (k'&data(1) eq 0).call2     no data
+*setup for data
+         RXSETREG r14,&data(1)             address
+         RXSETREG r15,&data(2),&$setreglc  length
+         stm   r14,r15,&cb.ShVbVba
+         st    r15,&cb.ShVbFbl
+.call2   anop
+*setup for name
+&s       setc  Upper('&name(1)')           ensure literal is ucase
+         RXSETREG r14,&s
+         aif   ('&name(1) '(1,1) eq '''' and k'&name(2) eq 0).call2nl
+         RXSETREG r15,&name(2),l'&name(1)
+         ago   .call2nn
+.call2nl anop
+&n       seta  k'&name(1)-2
+         la    r15,&n
+.call2nn anop
+         stm   r14,r15,&cb.ShVbVna
+*setup for call
+         mvc   &cb.ShVUser,&cb.ShVbVnl for 'next'
+         l     r15,zrx_coma                address of module irxexcom
+         l     r0,zrx_envba
+         la    r1,&cb.Comblk
+         Basr  r14,r15
+.* load data- and name length
+         l     r0,&cb.ShVbVbl
+         l     r1,&cb.ShVbVnl
+.*-getnext post, check for end of list
+         aif   ('&que' ne 'NEXT').X
+         if    (tm,&cb.SHVRET,SHVLVAR,o)     end of list set
+           la    r15,1
+         endif
+         if    (tm,&cb.SHVRET,SHVTRUNC,o)    truncation occurred
+           la    r15,2
+         endif
+         ltr    r15,r15                      set cc
+         Mexit
+.* reset the interface block
+.RESET   Anop
+         xc    &comblk.ShVb(&comblk.ShVbl),&comblk.ShVb
+         xc    &comblk.StAdjCnt,&comblk.StAdjCnt
+         xc    &comblk.NextCnt,&comblk.NextCnt
+         Mexit
+.*
+.x       MEND
+
+         Macro
+.*-      RXVGET
+.* Get a REXX variable to local storage
+.*
+.* Parameters;
+.*   DATA=(address,length)  Address is the address of the buffer which
+.*                          will receive the data.
+.*                          Length is the length of the buffer
+.*   NAME=(address,length)  Address is the variable name.
+.*                          The name may a literal in quotes.
+.*                          Length will default to the length of a
+.*                          literal of the generated length of a field.
+.*                          Note, the name in a field must be in ucase,
+.*                          a literal is ucased internally.
+.*   STOR=length            Size of dynamic data area. The area will be
+.*                          automatically reallocated if too small. You
+.*                          must use the STOR=DROP option when finished
+.*                          to release the storage.
+.*
+.*   address can be a label or a (register).
+.*   length can be a numbeer or a (register).
+.*
+.* Interesting fields after call
+.*  zrx_getdl actual size of data retrieved, even if truncated.
+.*
+.* Registers after call
+.* r15  return code
+.* r0   data length
+.*
+.* Sample
+.*   RxVGet name='TESTVAR1',data=(value,(r2))
+.*   RxVGet name=(varname,(r3)),data=(value,(r2))
+.*   RxVGet name='longvar',stor=200
+.*   lr    r2,r0         copy data length
+.*   RxVGet stor=drop
+.*-
+&mlbl    RXvGet &name=,&data=,&comblk=zrx_,&stor=,&acc=GET
+         lclc  &l,&q,&ac
+&l       setc  'RG&sysndx'
+&q       setc  Upper('&syslist(1)')
+&ac      setc  Upper('&acc')
+         aif   ('&q' eq 'RESET').reset
+         aif   (k'&stor ne 0).stor
+&mlbl    xc    &comblk.getdl,&comblk.getdl
+         RxVacc &acc,name=&name,data=&data,comblk=&comblk
+         mvc   &comblk.getdl,&comblk.datal initially use varlen
+         clc   &comblk.datal,&comblk.bufrl if varlen lt bufferlen
+         jl    *+10                         else
+         mvc   &comblk.getdl,&comblk.bufrl   use bufferlen
+         l     r0,&comblk.getdl
+         Mexit
+.* reset the interface block
+.RESET   Anop
+         xc    &comblk.ShVb(&comblk.ShVbl),&comblk.ShVb
+         xc    &comblk.stadjcnt,&comblk.stadjcnt
+         xc    &comblk.nextcnt,&comblk.nextcnt
+         Mexit
+.* use dynamic storage for data area
+.STOR    Anop
+&q       setc  Upper('&stor')
+         aif   ('&q' eq 'DROP').stordrp
+         RXSETREG r14,&stor
+&l.cs    c     r14,&comblk.ShVbFbl
+         jnh   &l.cl                   ok, go call
+*-freemain
+         l     r0,&comblk.ShVbFbl      size
+         icm   r1,15,&comblk.ShVbVba   if null address
+         jz    &l.gm                   then no previous storage
+         Freemain R,lv=(0),a=(1)
+*-getmain
+&l.gm    st    r14,&comblk.ShVbFbl     save as buffer length
+         Getmain R,lv=(14),loc=31
+         st    r1,&comblk.ShVbVba      save address
+*-call
+&l.cl    xc    &comblk.ShVbVbl,&comblk.ShVbVbl
+         RxVacc &acc,name=&name,comblk=&comblk
+         tm    &comblk.ShVRet,SHVTRUNC
+         jz    &l.sl
+         l     r14,&comblk.stadjcnt
+         la    r14,1(,r14)
+         st    r14,&comblk.stadjcnt
+         l     r14,&comblk.ShVbVbl
+         j     &l.cs
+&l.sl    l     r0,&comblk.ShVbVbl      size of retrieved
+         l     r1,&comblk.ShVbVba      addr of retrieved
+         Mexit
+.STORDRP Anop
+         l     r0,&comblk.ShVbFbl      size
+         l     r1,&comblk.ShVbVba      address
+         Freemain R,lv=(0),a=(1)
+         Mexit
+.x       MEND
+
+         Macro
+.*-      RXVGETDS
+.* Get data to getmained area
+.* The area is 31-bit
+.* Note, you must FREEMAIN the storage yourself after usage
+.*
+.* Parameters;
+.*   NAME=  same as for the RxVGet macro.
+.*   AR=    register 2-12 to contain the address.
+.*   LR=    register 2-12 to contain the length.
+.*   PFXL=  length of prefix in new buffer (area before var-data) as
+.*          number, equated or (reg).
+.*
+.* Registers after call
+.*   AR=    address of getmained area (=prefix)
+.*   LR=    length incl prefix
+.*
+.* Sample
+.*   RxVGetDs name='TESTVAR1',ar=r2,lr=r3
+.*   ahi   r3,-1
+.*   mvc   data,(*-*),0(r2)
+.*   ex    r3,*-6
+.*-
+         RxVgetDS &name=,&ar=,&lr=,&pfxl=0,&comblk=zrx_
+         lclc  &l
+&l       setc  'RG&sysndx'
+         sr    &lr,&lr                 set 'get length'
+*- get data and/or length
+&l.a     setreg r14,&pfxl
+         ar    r14,&ar
+         RxVget name=&name,data=((r14),(&lr)),comblk=&comblk
+         lt    &lr,zrx_ShVbFbl         size
+         jnz   &l.q                    got it
+*- acquire storage
+         l     &lr,zrx_ShVbVbl         required size
+         setreg r14,&pfxl
+         ar    &lr,r14                 plus prefix
+         getmain R,lv=(&lr),loc=31
+         lr    &ar,r1                  -> area
+         j     &l.a
+*- all done
+&l.q     ds    0h                      copy size
+         Mend
+
+         Macro
+.*-
+.* Create or update a REXX variable from local storage
+.*
+.* Parameters;
+.*   NAME same as for the RxVGet macro.
+.*   If the name is a stem, then the entire stem is dropped.
+.*
+.* Registers after call
+.* r15  return code
+.*
+.* Sample
+.*   RxVDrop name=('TESTVAR1')
+.*-
+&mlbl    RXvDrop &name=,&comblk=zrx_
+&mlbl    RxVacc drop,name=&name,comblk=&comblk
+.x       MEND
+         Macro
+.*-      RXVPUT
+.* Drop a REXX variable.
+.*
+.* Parameters;
+.*   DATA and NAME same as for the RxVGet macro.
+.*
+.* Registers after call
+.* r15  return code
+.*
+.* Sample
+.*   RxVPut name=('TESTVAR1',8),data=(value,(r2))
+.*-
+&mlbl    RXvPut &name=,&data=,&comblk=zrx_
+.* bl    RxVacc put,name=(&name(1),&name(2)),data=(&data(1),&data(2)),
+&mlbl    RxVacc put,name=&name,data=&data,comblk=&comblk
+.x       MEND
+
+         Macro
+.*-      RXVNEXT
+.* Retrieve all REXX variable from current environment, or information
+.* about variables.
+.*
+.* Parameters;
+.*   DATA and NAME same as for the RxVGet macro.
+.*  If p1 = 'STATS' then the following parameters are used:
+.*   NL     register to receive name length
+.*   DL     register to receive data length
+.*   TDL    register to add data length (must be 0 before first call).
+.*   COUNT  register to hold count
+.*
+.* Both the NAME and the DATA fields will be filled in by the function.
+.*
+.* Interesting fields after call
+.*  zrx_getdl actual size of data retrieved, even if truncated.
+.*
+.* Registers after call
+.* r15  return code
+.*      special code 1 means that the variable retrieved is the last.
+.*      special code 2 means that the name or the data was truncated.
+.* r0   data length
+.* r1   name length
+.*
+.* Sample
+.*   RxVNext name=(namebfr,l'namebfr),data=(databfr,l'databfr)
+.*   lr    r2,r0         copy data length
+.*   lr    r3,r1         copy name length
+.*-
+&mlbl    RxVNext &name=,&data=,&nl=,&dl=,&tdl=,&count=,                c
+               &comblk=zrx_
+         lclc  &l,&q
+&l       setc  'RN&sysndx'
+&q       setc  Upper('&syslist(1)')
+         aif   ('&q' eq 'STATS').stats
+&mlbl    xc    &comblk.getdl,&comblk.getdl
+         RxVacc next,name=&name,data=&data,comblk=&comblk
+         mvc   &comblk.getdl,&comblk.datal initially use varlen
+         clc   &comblk.datal,&comblk.bufrl if varlen gt bufferlen
+         jl    *+10                         then
+         mvc   &comblk.getdl,&comblk.bufrl   use bufferlen
+         l     r0,&comblk.getdl
+         mexit
+.STATS   ANOP
+&mlbl    RxVacc reset
+         sr    &nl,&nl                 name length
+         sr    &dl,&dl                 data length
+         sr    &count,&count           count
+&l.a     RxVacc next,name=(0,0),data=(0,0)
+         tm    zrx_SHVRET,SHVLVAR
+         jo    &l.x
+         cr    r1,&nl
+         jnh   *+6
+         lr    &nl,r1
+         cr    r0,&dl
+         jnh   *+6
+         lr    &dl,r0
+         aif   (k'&tdl eq 0).count
+         ar    &tdl,r0
+.count   la    &count,1(,&count)
+         j     &l.a
+&l.x     RxVacc reset
+         mexit
+.x       MEND
+
+         Macro
+.*-
+.* Read or write a stemvar, combining the basename and the number.
+.* Parameters are a combination of those for RXSTEMNAME
+.* and RXVGET/VPUT
+.* name    the full name base plus tail, i.e. 'NAME.2'
+.* base    the stem base incl trailing dot, i.e. 'NAME.'
+.* stema   area to build the name.
+.* data    the data to add to the stem.
+.* num     number, f.address or (reg).
+.* pnum    address of packed decimal number.
+.*
+.* name, base and data may have a length like (address,length).
+.* num and pnum are converted to left-adjusted char.
+.*-
+         RxStemAcc &name=,&stema=,&base=,&num=,&pnum=,&data=,          c
+               &comblk=zrx_,&acc=???,&namelenr=r1
+         lclc  &vn
+&vn      setc  '&name'
+         aif   (k'&name ne 0).vnok
+&vn      setc  '&stema'
+.vnok    anop
+ mnote *,'-RxStemname'
+         RxStemname stema=&vn,base=&base,num=&num,pnum=&pnum
+         lr    &namelenr,r15
+ mnote *,'-RxV&acc'
+         RxV&acc name=(&vn,(&namelenr)),data=&data,&comblk=&comblk
+         Mend
+
+.*-
+.* Read a stem var. Refer to 'RXSTEMACC' for parameter description.
+.*-
+         Macro
+         RxStemGet &name=,&stema=,&base=,&num=,&pnum=,&data=,          c
+               &comblk=zrx_,&namelenr=r1
+.* call common access macro
+         RxStemAcc acc=GET,name=&name,stema=&stema,namelenr=&namelenr, c
+               base=&base,num=&num,pnum=&pnum,data=&data,comblk=&comblk
+         Mend
+
+         Macro
+.*-
+.* Write a stem var. Refer to 'RXSTEMACC' for parameter description.
+.*-
+         RxStemPut &name=,&stema=,&base=,&num=,&pnum=,&data=,          c
+               &comblk=zrx_,&namelenr=r1
+.* call common access macro
+         RxStemAcc acc=PUT,name=&name,stema=&stema,comblk=&comblk,     c
+               namelenr=&namelenr,                                     c
+               base=&base,num=&num,pnum=&pnum,data=&data
+         Mend
+
+         Macro
+.*-
+.* Access the REXX data stack
+.*
+.* Parameters;
+.*   what  function - PUSH, QUEUE, QUEUED or PULL
+.*   data  address or (address,length) for functions QUEUE, PUSH and
+.*         QUEUED. Must be a fullword if QUEUED.
+.*         Optional address or (address,length) for function PULL.
+.*   LR=   register (2-12) to get length of returned data. Required.
+.*
+.* Registers after call
+.*  r15  return code
+.*  function is PULL and DATA=null
+.*   r0   data length
+.*   r1   data address
+.*  function is PULL and DATA=something
+.*   r0   rc from strcopy
+.*          1   data truncated, field zrx_datal contains the original
+.*              width.
+.*   r1   data address
+.*  function is QUEUED
+.*   r1  value
+.*
+.* Sample
+.*   RxStack pull,data=buffer,lr=r2
+.*   RxStack queued
+.*-
+         RxStack &what,&data=,&mode=,&wrka=,&lenreg=,&lr=
+         lclc  &que,&l,&s
+&func    setc  Upper('&what')
+&l       setc  'zrx&sysndx'
+         la    r14,=cl8'&func'         function
+&s       setc  Upper('&mode')
+         aif   ('&mode' eq 'CALL').call
+         xc    zrx_datal,zrx_datal
+         xc    zrx_xComRc,zrx_xComRc
+         aif   ('&func' ne 'QUEUE' and '&func' ne 'PUSH').quefn
+         aif   (n'&data eq 0).datafn
+         RXSETREG r15,&data(1),0
+         st    r15,zrx_dataa           address of data
+         RXSETREG r15,&data(2),l'&data,0
+         st    r15,zrx_datal           save data length
+.datafn  anop
+.quefn   anop
+         la    r15,zrx_dataa           address of data returned
+         la    r0,zrx_datal            length of data returned
+         la    r1,zrx_xComRc           value returned by irxstk
+         stm   r14,r1,zrx_wrk
+         oi    zrx_wrk+12,x'80'        set VL bit
+         l     r0,zrx_envba            -> ENVBLOCK
+         l     r15,zrx_StkA            -> stack manager
+         la    r1,zrx_wrk              parm list
+         basr  r14,r15                 call irxstk
+         aif   ('&func' eq 'PULL').pullbe
+         aif   ('&func' eq 'QUEUED').quedbe
+         ago   .other
+.quedbe  anop                          QUEUED back end
+         l     r1,zrx_xComRc           value
+         aif   (k'&data eq 0).quedb2
+         st    r1,&data
+.quedb2  ltr   r15,r15                 set rc
+         mexit
+.pullbe  anop                          PULL back end
+         ltr   r15,r15                 test rc
+         aif   (n'&data eq 0).pullb2
+         jnz   &l.b2                   exit if bad rc
+&s       setc  Upper('&lenreg&lr')
+         RxStrCopy  from=(f.zrx_dataa,f.zrx_datal),                    c
+               to=(&data(1),&data(2)),lr=&s,tt=y
+         lr    r0,r15                  strcopy rc
+         sr    r15,r15
+         ltr   r15,r15
+&l.b2    equ   *
+         mexit
+.pullb2  anop                          PULL back end
+         l     r0,zrx_datal
+         l     r1,zrx_dataa
+         mexit
+.other   ltr   r15,r15
+         ago   .x
+.*- call
+         l     r15,zrx_envba
+         RXSETREG r0,&data(1)
+         RXSETREG r1,&data(2),l'&data(1)
+         stm   r14,r1,zrx_wrk
+         RXSETREG r1,&wrka,0
+         st    r1,zrx_wrk+16
+         la    r1,zrx_wrk
+         Call  ZRXSTACK
+         ltr   r15,r15
+.*- end
+.x       anop
+&l.x     equ   *
+         Mend
+
+         Macro
+*-
+* ZRXSTACK - stack interface
+* At entry
+*  r1 -> ZRXSTACK_prm
+* At exit
+*  r15  0  all ok, though the string may have been truncated
+*      >0  return code from IRXSTK
+*-
+         RexxMacsMods
+         using ZRXSTACK,r12
+         using ZRXSTACK_PRM,r9
+         using ZRXSTACK_WRK,r10
+*-
+*  initialize module
+*-
+ZRXSTACK Csect
+         save  (14,12)
+         lr    r12,r15
+         lr    r9,r1
+         icm   r10,r15,ZRXSTACK_prmwa
+         jnz   ZRXSTACK_ini1n
+         Getmain R,lv=ZRXSTACK_wrkl,loc=31
+         lr    r10,r1
+ZRXSTACK_ini1n equ   *
+         la    r14,ZRXSTACK_sa1
+         st    r14,8(,r13)
+         st    r13,4(,r14)
+         lr    r13,r14
+         xc    ZRXSTACK_pl(ZRXSTACK_wrkn-ZRXSTACK_pl),ZRXSTACK_pl
+*-
+*  setup and call service
+*-
+         l     r14,ZRXSTACK_prmfa      -> function
+         la    r15,ZRXSTACK_dataa      address of data returned
+         la    r0,ZRXSTACK_datal       length of data returned
+         la    r1,ZRXSTACK_val         value returned by irxstk
+         stm   r14,r1,ZRXSTACK_pl
+         oi    ZRXSTACK_pl+12,x'80'    set VL bit
+         l     r15,ZRXSTACK_prmea
+         l     r15,envblock_irxexte-envblock(,r15) a(irxexte)
+         l     r15,irxstk-irxexte(,r15) stack manager
+         la    r1,ZRXSTACK_pl          parm list
+         l     r0,ZRXSTACK_prmea
+         basr  r14,r15                 call irxstk
+         ltr   r15,r15                 quit now
+         jnz   ZRXSTACK_rtn              if bad rc
+         l     r2,ZRXSTACK_prmfa       -> function
+*be aware of special cases
+         clc   =c'QUEUED',0(r2)        special case 'queued'
+         je    ZRXSTACK_qed
+         j     ZRXSTACK_norm
+*-
+*  handle special case QUEUED
+*-
+ZRXSTACK_qed   equ *
+         l     r2,ZRXSTACK_prmda       address of data returned
+         mvc   0(4,r2),ZRXSTACK_val
+         j     ZRXSTACK_rtn
+*-
+*  return data for normal cases
+*-
+ZRXSTACK_norm  equ *
+         lr    r5,r15                     save rc
+         StrCopyl from=(f.ZRXSTACK_dataa,f.ZRXSTACK_datal),            c
+               to=(f.ZRXSTACK_prmda,f.ZRXSTACK_prmdl)
+         lr    r15,r5                     restore rc
+*-
+*  return
+*-
+ZRXSTACK_rtn   equ  *
+         lr    r5,r15
+         clc   ZRXSTACK_prmwa,=a(0)       work area supplied??
+         jne   ZRXSTACK_rtn2              yes
+         Freemain R,lv=ZRXSTACK_wrkl,a=(10)
+ZRXSTACK_rtn2  equ  *
+         lr    r15,r5
+         l     r13,4(,r13)
+         l     r14,12(,r13)
+         Return (2,12)
+
+         ltorg
+         drop
+
+*-
+*  parm area  4x6=16 bytes
+*-
+ZRXSTACK_prm   dsect
+ZRXSTACK_prmfa ds    a                 address
+ZRXSTACK_prmea ds    a                 address
+ZRXSTACK_prmda ds    a                 address
+ZRXSTACK_prmdl ds    a                 address
+ZRXSTACK_prmwa ds    a                 address or 0
+
+*-
+*  work area  28x4=112 bytes
+*-
+ZRXSTACK_wrk   dsect
+ZRXSTACK_sa1   ds    18a
+ZRXSTACK_pl    ds    6a
+ZRXSTACK_rc    ds    a
+ZRXSTACK_val   ds    a
+ZRXSTACK_dataa ds    a                 address
+ZRXSTACK_datal ds    a                 value
+ZRXSTACK_wrkn  equ   *
+ZRXSTACK_wrkl  equ   *-ZRXSTACK_wrk
+         Mend
+
+         Macro
+.*-      RXEXEC
+.* Start a REXX pgm from a program
+.* 2 calls must be made - DS and CALL.
+.*
+.* Syntax
+.*   lbl  RXEXEC NAME=name,DD=dd,SUB=sub,ARGB=argb,MODE=mode,
+.*               Ý,PARM=parm¨
+.*   lbl  RXEXEC BUILD,NAME=name,DD=dd,SUB=sub,ARGB=argb,MODE=mode,
+.*               Ý,PARM=parm¨
+.*   lbl  RXEXEC CALLÝ,PARM=parm¨
+.*        RXEXEC DS,EVBSZ=,ARGN=,WRKSZ=
+.*        RXEXEC SETPARM,PARM=addr | (addr,len)
+.*   none     Fill in control block data and link to IRXEXEC.
+.*   BUILD    Fill in control block data.
+.*   CALL     Call IRXEXEC using pre-built control blocks.
+.*   DS       Define control blocks.
+.*   SETPARM  Add one parm to the call data.
+.*   name     Required membername to execute. Must be 8 chars, need not
+.*            be uppercase.
+.*   dd       Optional ddname to load from. Must be 8 uppercase chars.
+.*   sub      Optional subcom. Must be 8 uppercase chars.
+.*   argb     Address of argument list, default is the block created
+.*            by RXEXEC DS.
+.*   argn     Number of arguments. The macro will add space for the
+.*            terminator. Note that you must update the argument
+.*            fields and terminator yourself, see the sample below.
+.*   evbsz    Size of the fixed response area in the generated data
+.*            block. Default is 400.
+.*   wrksz    Size of generated work ara for call, must be ge 6144 if
+.*            defined. Optional.
+.*   mode     0 - exec is being invoked as a command.
+.*            1 - exec is being invoked as a function call - default.
+.*            2 - exec is being invoked as a subroutine, i.e. CALL.
+.*            See notes for the parm 3 below.
+.*
+.* Sample
+.*           RxExec name=execname,parm=arg1
+.*           lr    r5,r15                 return code
+.*           l     r3,zrx_ex_evalb+8      retval length
+.*           bctr  r3,0
+.*           mvc   retval(*-*).zrx_ex_evalb+16
+.*           ex    r3,*-6
+.*          . . .
+.*  arg1     dc    cl40'This is argument 1' argument 1
+.*  retval   dc    cl100' '
+.*  execname dc    cl8'RxExecPg'
+.*           RXEXEC ds,evbsz=400,argn=4,wrksz=8*1024,mode=1
+.*           REXXMACS DS
+.*          . . .
+.*           REXXMACS DSECT
+.*-
+&mlbl    RXEXEC &what,&evbsz=400,&argn=0,&wrksz=0,&mode=1,             c
+               &name=,&dd=,&sub=,&argb=ZRX_EX_ARGB,&parm=
+         gblc  &$SETREGLC
+&q       setc  Upper('&syslist(1)')
+         aif   ('&q' eq 'BUILD' or k'&q eq 0).build
+         aif   ('&q' eq 'CALL').call
+         aif   ('&q' eq 'DS').ds
+         aif   ('&q' eq 'SETPARM').setparm
+         mnote 8,'*** bad action &q'
+         mexit
+.build   anop
+*- Build control blocks then call IRXEXEC
+&l       setc  'z&sysndx'
+&mlbl    ds    0h
+         xc    zrx_ex_vl(zrx_ex_vl_len),zrx_ex_vl
+* prep value list
+         la    r1,10
+         la    r14,zrx_p1
+         la    r15,zrx_ex_vl
+&l.a     st    r15,0(,r14)
+         la    r14,4(,r14)
+         la    r15,4(,r15)
+         bct   r1,&l.a
+* Parm 1 Execution block
+         la    r1,zrx_ex_execb         -> EXEC block
+         st    r1,zrx_ex_v1            p1
+* Parm 2 Argument definition block
+         la    r1,&argb                -> argument list address
+         st    r1,zrx_ex_v2
+* Parm 3 (=mode parm)
+.*  Bit_0  This bit must be set on if the exec is being invoked as a
+.*         "command"; that is, the exec is not being invoked from
+.*         another exec as an external function or subroutine. If you
+.*         pass more than one argument to the exec, do not set bit 0
+.*         on.
+.*  Bit_1  This bit must be set on if the exec is being invoked as an
+.*         external function (a function call).
+.*  Bit_2  This bit must be set on if the exec is being invoked as a
+.*         subroutine for example, when the CALL keyword instruction is
+.*         used.
+.*  Bit_3  This bit must be set on if you want IRXEXEC to return
+.*         extended return codes in the range 20001 20099
+         mvi   zrx_ex_v3,bit&mode
+* Parm 4 in-storage control block (INSTBLK) - none
+* Parm 5 command processor parameter list (CPPL) - none
+* Parm 6 evaluation block
+         la    r1,zrx_ex_evalb         -> eval block address
+         st    r1,zrx_ex_v6
+* parm 7 workarea definition block, or 0
+.*       aif   (k'&wrksz eq 0).p7n
+         la    r14,zrx_ex_wrk          -> work area
+         laey  r15,zrx_ex_wrklen       work area size
+         ltr   r15,r15
+         jz    &l.p8
+         stm   r14,r15,zrx_ex_wrkd
+         la    r1,zrx_ex_wrkd
+         st    r1,zrx_ex_v7
+.p7n     anop
+* parm 8 address of a user field - none
+&l.p8    oi    zrx_p8,x'80'            VL
+*- Execution block
+         xc    zrx_ex_execb(execblk_v2_len),zrx_ex_execb
+         la    r14,zrx_ex_execb
+         using EXECBLK,r14
+         mvc   EXEC_BLK_ACRYN,=cl8'IRXEXECB'
+         mvc   EXEC_DDNAME,c' '
+         mvc   EXEC_DDNAME+1(23),EXEC_DDNAME
+         la    r1,EXECBLK_V2_LEN
+         st    r1,EXEC_BLK_LENGTH
+         aif   (k'&name gt 0).setname
+         mnote 8,'***Missing name'
+.setname anop
+         RxSetReg r1,&name
+         mvc   EXEC_MEMBER,0(r1)            REXX to run
+         aif   (k'&dd eq 0).setddn
+         RxSetReg r1,&dd
+         mvc   EXEC_DDNAME,0(r1)            ddname
+.setddn  anop
+         aif   (k'&sub eq 0).setsubn
+         RxSetReg r1,&sub
+         mvc   EXEC_SUBCOM,0(r1)            subcom
+.setsubn anop
+         xc    exec_dsnlen,exec_dsnlen
+ ago .setlibn                         ! setlib is future
+         aif   (k'&lib eq 0).setlibn
+&s       setc  Upper('&lib')
+         la    r1,=c'&lib'
+         st    r1,EXEC_DSNPTR          dsn address
+&n       seta  k'&lib
+         la    r1,&n                   dsn length
+         st    r1,EXEC_DSNLEN
+.setlibn anop
+         drop  r14
+*- evaluation block
+         xc    zrx_ex_evalb(16),zrx_ex_evalb
+         laey  r1,zrx_ex_evalb_len
+         slfi  r1,16                   minus prefix
+         srl   r1,3                    as doublewords
+         st    r1,zrx_ex_evalb+4
+         aif   (k'&q eq 0).call
+         aif   (k'&parm eq 0).x
+         RXEXEC SETPARM,PARM=&PARM
+         mexit
+* Call
+.call    anop
+         aif   (k'&parm eq 0).callpn
+         RXEXEC SETPARM,PARM=&PARM
+.callpn  anop
+         la    r1,zrx_p1
+         sr    r0,r0
+         link  ep=IRXEXEC
+         mexit
+.*
+.setparm anop
+         RxSetreg r14,&parm(1)
+         RxSetreg r15,&parm(2),l'&parm(1)
+         stm   r14,r15,zrx_ex_argb
+         mvi   zrx_ex_argb+8,X'FF'               set
+         mvc   zrx_ex_argb+9(7),zrx_ex_argb+8     terminator
+         mexit
+.*
+.ds      anop
+*  RXEXEC Parameter block
+zrx_ex_vl        ds    0a
+zrx_ex_v1        ds    a
+zrx_ex_v2        ds    a
+zrx_ex_v3        ds    a
+zrx_ex_v4        ds    a
+zrx_ex_v5        ds    a
+zrx_ex_v6        ds    a
+zrx_ex_v7        ds    a
+zrx_ex_v8        ds    a
+zrx_ex_v9        ds    a
+zrx_ex_v10       ds    a
+zrx_ex_vl_len    equ   *-zrx_ex_vl
+*  RXEXEC Exec block
+zrx_ex_execb     ds    0a,xl(EXECBLK_V2_LEN)
+*  RXEXEC Eval block
+zrx_ex_evalb     ds    0a,xl(16+&evbsz)
+zrx_ex_evalb_len equ  *-zrx_ex_evalb
+*  RXEXEC Argument list
+zrx_ex_argb      ds    ((1+&argn)*2)a   room for arguments
+zrx_ex_argb_len  equ   *-zrx_ex_argb
+.*       aif   (k'&wrksz eq 0).wrksz3n
+*  RXEXEC Work area
+zrx_ex_wrkd      ds    2a
+zrx_ex_wrk       ds    (&wrksz)x
+zrx_ex_wrklen    equ   *-zrx_ex_wrk
+.wrksz3n anop
+.dswrkn  anop
+         mexit
+.x       Mend
+         Macro
+.*-
+.* RXSETREG - build Lx instruction (inner macro)
+.* Copy of the SETREG macro.
+.* Returns length in a global variable, length either defined by the
+.* 2rd operand, or computed from the 2nd operand.
+.* Syntax:
+.*   SETREG r1,label    -> laey  r1,label
+.*   SETREG r1,,label   -> laey  r1,label
+.*   SETREG r1,number   -> iilf  r1,nnn
+.*   SETREG r1,4(,r3)   -> la    r1,4(,r3)                 -> length=0
+.*   SETREG r1,(r2)     -> lr    r1,r2                     -> length=0
+.*   SETREG r1,'kilroy' -> la    r1,=c'kilroy'
+.*   SETREG r1,0        -> slr   r1,r1                     -> length=0
+.*   SETREG r1,x.label  -> lx    r1,label  (x: B,C,F or H) -> length=0
+.* The length is returned in global variables &$SETREGL (numeric) and
+.* &$SETREGLC (character). Be careful as i.e. equated number will set
+.* length=1.
+.* The type LBL, TXT etc is returned in global variable &$SETREGT.
+.* Note that label B.xx  expands into a LLC instruction which loads
+.* the entre byte, whereas the LB instruction uses bit 0 as a sign.
+.*-
+&mlbl    RXSETREG &reg,&psrc,&pasrc,&pasrc2,&glen=,&src2=
+         lcla  &n,&l
+         lclc  &s,&c,&r,&srct,&srcl,&src,&li(4)
+         gbla  &$SETREGL
+         gblc  &$SETREGLC
+         gblc  &$SETREGT
+&$SETREGL  seta 0
+&$SETREGLC setc ''
+.* select source
+         aif   (k'&psrc   gt 0).setsrc1
+         aif   (k'&pasrc  gt 0).setsrc2
+         aif   (k'&pasrc2 gt 0).setsrc3
+         aif   (k'&src2   gt 0).setsrc4
+         mnote  8,'** SETREG mising source'
+.setsrc1 anop
+&src     setc  '&psrc'
+         ago   .setsrcn
+.setsrc2 anop
+&src     setc  '&pasrc'
+         ago   .setsrcn
+.setsrc3 anop
+&src     setc  '&pasrc2'
+         ago   .setsrcn
+.setsrc4 anop
+&src     setc  '&src2'
+.setsrcn anop
+.*
+&s       setc  Upper('&src')
+         aif   ('&s   '(1,3) eq 'L''''').litlen
+&srct    setc  t'&src
+&srcl    setc  Lower('&src')
+.* mnote *,'type &srct'
+.*-
+.* what kind of 1st operand do we have?
+.*-
+         aif   (k'&src gt 0).cp1
+         mnote 8,'src operand missing'
+         mexit
+.cp1     anop
+&n       seta  k'&src
+         aif   ('&s  '(1,3) eq 'FF.').loadff load+load
+         aif   ('&src '(2,1) eq '.').load
+         aif   ('&src' eq '0').clr          clear register
+         aif   ('&src'(1,1) eq '(').reg     register
+         aif   ('&src'(1,1) eq '''').txt    text
+         aif   ('&srct' eq 'N').num         number
+         aif   ('&src'(&n,1) eq ')').rego   register + number '4(r13)'
+         ago   .lbl                         assume label
+.*- src is 0, means clear reg
+.clr     anop  ,
+&$SETREGT setc 'CLR'
+&mlbl    slr   &reg,&reg
+         mexit
+.*- src is a number
+.num     anop  ,
+&$SETREGT setc 'NUM'
+&mlbl    iilf  &reg,&src
+&$SETREGL seta &src
+         mexit
+.*- src is a label or address or n(reg)
+.lbl     anop  ,                           label
+&$SETREGT setc 'LBL'
+&mlbl    laey  &reg,&src
+&s       setc  t'&src
+.* mnote *,'LBL t=&s'
+&s       setc  Upper('&src')
+         aif   ('&s'(1,2) eq 'L''').lbll
+         aif   (t'&src ne 'C').lblu        was eq c'U'  2021-07-21
+&$SETREGL  seta l'&src
+&$SETREGLC setc '&$SETREGL'
+         mexit
+.lblu    anop
+&$SETREGLC setc 'l''&src'
+         mexit
+.lbll    anop
+&$SETREGLC setc '&src'
+         mexit
+.*- src is a register
+.reg     anop  ,                           register
+&$SETREGT setc 'REG'
+&n       seta  (k'&src)-2
+&s       setc  '&src'(2,&n)
+&mlbl    lr    &reg,&s
+         mexit
+.*- src is a register + number , i.e. 4(,r13)
+.rego    anop  ,                           register
+&$SETREGT  setc 'REGO'
+&mlbl    la    &reg,&s
+         mexit
+.*- src is text
+.txt     anop  ,
+&$SETREGT setc 'TXT'
+&s       setc  '=c&src'
+&mlbl    laey  &reg,&s
+&n       seta  (k'&src)-2
+&$SETREGL seta &n
+&$SETREGLC setc '&n'
+         mexit
+.*- load from storage
+.load    anop  ,
+.* mnote *,'load'
+&c       setc  Upper('&srcl'(1,1))
+&n       seta  (k'&src)-2
+&s       setc  '&src'(3,&n)
+&$SETREGT setc 'LFS'
+         aif   ('&c' eq 'F' or '&c' eq 'A').loadf
+         aif   ('&c' eq 'B' or '&c' eq 'C').loadb
+         aif   ('&c' eq 'H').loadh
+         aif   ('&c' eq '*').loadQ
+         mnote 8,*** invalid load parm &c'
+         mexit
+.loadf   anop  ,
+&mlbl    l     &reg,&s                     load from fullword
+         mexit
+.loadff  anop  ,
+&n       seta  (k'&src)-3
+&s       setc  '&src'(4,&n)
+&mlbl    l     &reg,&s                     load address of data
+         l     &reg,0(,&reg)               load from fullword
+         mexit
+.loadh   anop  ,
+&mlbl    llh   &reg,&s                     load from halfword
+         mexit
+.loadb   anop  ,
+&mlbl    llc   &reg,&s                     load from byte
+         mexit
+.loadq   anop  ,
+&li(1)   setc  'llc'
+&li(2)   setc  'llh'
+&li(3)   setc  '???'
+&li(4)   setc  'l'
+&l       seta  l'&s
+&c       setc  '&li(&l)'
+&mlbl    &c    &reg,&s
+         mexit
+*-
+.litlen  anop
+&n       seta  (k'&src)-4
+&$SETREGL  seta &n
+&$SETREGLC setc '&$SETREGL'
+         la    &reg,&n                     length of literal
+         mexit
+*-
+.x       Mend
+
+         Macro
+.*-
+.* Copy string - copy of STRCOPY
+.*
+.* The generated code determines if the length is le or gt 255
+.* and does MVC or MVCL accordingly.
+.*
+.* Syntax
+.*  STRCOPY FROM=(addr,len),TO=(addr,len) Ý,LENREG|LR=lr¨
+.*          ÝTESTTRUNC|TT=tt¨ ÝCM=copymode¨
+.*   addr      label, (reg), F.label
+.*   len       value, (reg), F.label, default is len of addr
+.*   lr        register to save the length.
+.*   tt        Y : test for truncation, see R15 setting below.
+.*   copymode  L forces MVCL, trades a bit of speed for a shorter
+.*             path length.
+.*
+.* Len values are optional, they defaults to the with of addr.
+.* The smallet value will be used.
+.*
+.* Registers 14, 15, 0 and 1 are all used internally.
+.*
+.* Uses macro setreg to set values.
+.*
+.* R15
+.*  0   normal rc
+.*  1   truncation done if TESTTRUNC=Y
+.*
+.* Samples
+.*     STRCOPY  from=target,to=(source,(r3))
+.*-
+&mlbl    RxStrCopy  &from=,&to=,&lenreg=,&lr=,&testtrunc=,&tt=,&cm=
+         lclc  &l,&s,&lenr,&ttrunc,&fsz,&cmode
+         gblc  &$setreglc
+&l       setc  'zsc&sysndx'
+&lenr    setc  '&lenreg.&lr'
+&ttrunc  setc  Upper('&testtrunc.&tt '(1,1))
+&cmode   setc  Upper('&cm')
+.* setup address and length info
+&mlbl    RxSetReg r14,&from(1)
+&fsz     setc  '&$setreglc'
+         RxSetReg r15,&from(2),&$setreglc
+         aif   ('&ttrunc' ne 'Y').tt1n
+         st    r15,20(,r13)         save source lenth
+.tt1n    anop
+         RxSetReg r0,&to(1)
+         RxSetReg r1,&to(2),&$setreglc
+.* beware of overflow
+         cr    r1,r15               check target big enough
+         jnl   *+6                  target size ok
+         lr    r15,r1               overflow, use target length
+         lr    r1,r15               eventually use the smaller value
+         aif   (k'&lenr eq 0 and '&ttrunc' ne 'Y').lr1n
+         st    r1,24(,r13)          save adjusted target length
+.lr1n    anop
+.* beware of zero length
+         ltr   r15,r15              beware of zero length
+         jz    &l.q
+.* select method
+         aif   ('&cmode' eq 'L').cml
+         clfi  r15,256              if source length
+         jh    &l.ml                  gt 256 then use movelong
+         bctr  r15,0
+         lr    r1,r0                copy target address
+         ex    r15,&l.ms
+         j     &l.q
+&l.ms    mvc   0(*-*,r1),0(r14)
+.cml     anop
+&l.ml    mvcl  r0,r14
+&l.q     ds    0h
+.* test for trunctation, when final length lt l'source
+         aif   ('&ttrunc' ne 'Y').tt2n
+         sr    r15,r15              prep rc before trunc test
+         clc   24(4,r13),20(r13)
+         jnl   *+8
+         la    r15,1
+.tt2n    anop
+.* copy length
+         aif   (k'&lenr eq 0).lr2n
+         l     &lenr,24(,r13)
+.lr2n    anop
+.* all done
+.x       anop
+         Mend

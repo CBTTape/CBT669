@@ -1,0 +1,197 @@
+//RXHL$PLI JOB (1),'DVL-RXHL-PL/I-DEMO',
+//  CLASS=A,COND=(0,LT),REGION=0M
+//*
+//* Test hl-interface module to acces REXX vars and stack
+//* This test is for PL/I
+//*
+//  SET DP=WJENSEN,JL=IBMZ.H270420.SIBMZPRC,LP=IBMZ.H270420  CBT
+//  SET DP=Z,JL=IEL530.SIBMZPRC,LP=IEL530                    Package
+//  SET DP=DVL,JL=IEL530.SIBMZPRC,LP=IEL530                  Dvl
+//*
+//  JCLLIB ORDER=&JL
+//  SET PPLIB=&DP..PP.RXHLLK.LIB
+//  SET PPMOD=&DP..PP.RXHLLK.MOD
+//*
+//A       EXEC IBMZCB,LNGPRFX=&LP,
+//        PARM.PLI='OBJECT,OPTIONS,SOURCE'
+//PLI.STEPLIB DD
+//            DD
+//            DD DISP=SHR,DSN=CEE.SCEERUN2
+//PLI.SYSIN   DD *
+ RXHLPLI: PROCEDURE OPTIONS (MAIN) ; /* REORDER; */
+
+ Dcl RXHLLK entry external options(asm, inter, retcode);
+ Dcl print file;
+ Dcl rec        char(200) init(' ');
+ Dcl cmd        char(8)  init(' ');
+ Dcl rxpgm      char(8)  init(' ');
+ Dcl nameval    char(60) init(' ');
+ Dcl namelen    fixed bin(31) ;
+ Dcl textval    char(160) init(' ');
+ Dcl textlen    fixed bin(31) ;
+ Dcl parmval    char(100) init(' ');
+ Dcl parmlen    fixed bin(31) ;
+ Dcl maskval    char(60) init(' ');
+ Dcl masklen    fixed bin(31) ;
+ Dcl nl         fixed bin(31) ;
+ Dcl tl         fixed bin(31) ;
+ Dcl rc         fixed bin(31) init(0);
+
+ Call DoMsg('Testing the RXHLLK module from PL/I');
+ Call DoMsg(' ');
+
+ /* Message... */
+ Call DoMsg('Message..');
+ cmd = 'MSG     ';
+ textval ='Test running the module from a PL/I program' ;
+ textlen = length(trim(textval));
+ Call RXHLLK(cmd,textval,textlen);
+ rc = pliretv();
+ Call DoMsg('Rc ' || trim(rc) );
+ Call DoMsg(' ');
+
+ /* VPUT */
+ Call DoMsg('VPUT PVAR001');
+ cmd = 'VPUT    ';
+ nameval= 'PVAR0001';
+ namelen = length(trim(nameval)) ;
+ textval ='Just testing vput-ing data from a PL/I program' ;
+ textlen = length(trim(textval));
+ Call RXHLLK(cmd,nameval,namelen,textval,textlen);
+ rc = pliretv();
+ Call DoMsg('Rc ' || trim(rc) );
+ Call DoMsg(' ');
+
+ /* VGET */
+ Call DoMsg('VGET TESTVAR');
+ cmd = 'VGET    ';
+ nameval= 'TESTVAR';
+ namelen= length(trim(nameval));
+ textval= '';
+ textlen= length(textval);
+ Call RXHLLK(cmd,nameval,namelen,textval,textlen);
+ rc = pliretv();
+ Call DoMsg('Rc ' || trim(rc) );
+ if (rc=0) then
+   Call DoMsg('Text=(' || trim(textlen) || ') '
+        || substr(textval,1,textlen) );
+ Call DoMsg(' ');
+
+ /* NEXT */
+ Call DoMsg('NEXT..');
+ do until (rc >= 2 | namelen = 0) ;
+   cmd = 'NEXT    ';
+   namelen = length(nameval);
+   textval= '';
+   textlen = length(textval);
+   Call RXHLLK(cmd,nameval,namelen,textval,textlen);
+   rc = pliretv();
+   if (rc < 2 & namelen > 0) then do;
+     nl = namelen;
+     tl = textlen;
+     if nl > 40 then nl=40;
+     if tl > 60 then tl=60;
+     Call DoMsg('Rc ' || trim(rc)
+         || ' name=(' || trim(namelen) || ') '
+         || substr(nameval,1,nl)
+         || ' text=(' || trim(textlen) || ') '
+         || substr(textval,1,tl) );
+   end;
+   else Call DoMsg('rc ' || trim(rc) );
+ end;
+ Call DoMsg(' ');
+
+ /* NEXT with filter */
+ Call DoMsg('NEXT with filter *ROOM*..');
+ maskval= '*ROOM*';
+ masklen = length(trim(maskval));
+ do until (rc >= 2) ;
+   cmd = '?NEXTF  ';
+   nameval= '';
+   namelen = 60;
+   textval= '';
+   textlen = 160;
+   Call RXHLLK(cmd,nameval,namelen,textval,textlen,maskval,masklen);
+   rc = pliretv();
+   if (rc < 2) then do;
+     nl = namelen;
+     if nl > 40 then nl=40;
+     Call DoMsg('Call rc ' || trim(rc)
+         || ' name=(' || trim(namelen) || ') '
+         || substr(nameval,1,nl) );
+   end;
+   else Call DoMsg('Call rc ' || trim(rc));
+ end;
+ Call DoMsg(' ');
+
+ /* PULL stack */
+ Call DoMsg('PULL stack..');
+ do until (rc >= 2) ;
+   cmd = 'PULL    ';
+   textval= '';
+   textlen = length(textval);
+   Call RXHLLK(cmd,textval,textlen);
+   rc = pliretv();
+   if (rc < 2) then do;
+     tl = textlen;
+     if tl > 60 then tl=60;
+     Call DoMsg('Rc ' || trim(rc)
+         || ' text=(' || trim(textlen) || ') '
+         || substr(textval,1,tl) );
+   end;
+   else Call DoMsg('rc ' || trim(rc) );
+ end;
+ Call DoMsg(' ');
+
+ /* QUEUE */
+ cmd = 'QUEUE   ';
+ Call DoMsg('QUEUE   ');
+ textval ='Some internally queued data from the PL/I program' ;
+ textlen = length(trim(textval));
+ Call RXHLLK(cmd,textval,textlen);
+ rc = pliretv();
+ Call DoMsg('Rc ' || trim(rc) );
+ Call DoMsg(' ');
+
+ /* CALL REXX pgm */
+ cmd     ='CALL    ';
+ rxpgm   ='RXHLRXP2';
+ parmval ='Kilroy was here';
+ parmlen = length(trim(parmval));
+ textval = '';
+ textlen = length(textval);
+ Call DoMsg('Call' || rxpgm || '..');
+ /* response is in textval,textlen */
+ Call RXHLLK(cmd,rxpgm,parmval,parmlen,textval,textlen);
+ rc = pliretv();
+ Call DoMsg('Rc ' || trim(rc)
+      || ' resp "' || substr(textval,1,textlen) || '"');
+ Call DoMsg(' ');
+
+ Call DoMsg('End of run');
+ Call PLIRETC(0);
+ END RXHLPLI;
+
+ DoMsg: Procedure(mtext);
+  Dcl mlen fixed bin(31) ;
+  Dcl mtext  char(200) ;
+  Dcl cmd    char(8)  init(' ');
+  Dcl RXHLLK entry external options(asm, inter, retcode);
+  cmd = 'MSG     ';
+  mlen = length(trim(mtext));
+  Call RXHLLK('MSG     ',mtext,mlen);
+ END DoMsg;
+//BIND.SYSLMOD DD DISP=(,PASS),DSN=&&PGMLIB(RXHLDPLI)
+//BIND.SYSLIB  DD
+//             DD DISP=SHR,DSN=&PPMOD
+//*
+//* Run from a REXX pgm
+//*
+//RXEX     EXEC PGM=IKJEFT1B,PARM='RXHLRXT PLI'
+//SYSEXEC  DD DISP=SHR,DSN=&PPLIB
+//STEPLIB  DD DISP=OLD,DSN=&&PGMLIB
+//SYSTSPRT DD SYSOUT=*,OUTLIM=1000           TSO messages
+//SYSTSIN  DD DUMMY
+//SYSPRINT DD SYSOUT=*,OUTLIM=1000           ASM prt
+//PRINT    DD SYSOUT=*,OUTLIM=1000           PLI prt
+//SYSUDUMP DD DUMMY

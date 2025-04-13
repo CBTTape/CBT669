@@ -1,0 +1,56 @@
+//RXRVDFSP JOB (1),'DFSPTEST',CLASS=A,COND=(0,LT),REGION=0M
+//*
+//A        EXEC RXINSTRM
+//*-+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8
+//DATA     DD *
+0001 WJ.AUTO.SUBSYS.LIB                           NONVSAM  SYSXU1 SYSX.ICFCAT1
+0002 WJ.CBTF1.TXT.OLD                             NONVSAM  SYSXU1 SYSX.ICFCAT1
+0003 WJ.CBTF1.TXT                                 NONVSAM  SYSXU3 SYSX.ICFCAT1
+0004 WJ.AIXTEST.DB.INDEX                          INDEX    SYSXU1 SYSX.ICFCAT1
+0005 WJ.AIXTEST.DB.DATA                           DATA     SYSXU1 SYSX.ICFCAT1
+0006 WJ.AIXTEST.DB                                CLUSTER  NO-VOL SYSX.ICFCAT1
+0007 WJ.AIXTEST.AIXP1                             PATH     NO-VOL SYSX.ICFCAT1
+0008 WJ.AIXTEST.AIX.DATA                          DATA     SYSXU1 SYSX.ICFCAT1
+0009 WJ.AIXTEST.AIX.INDEX                         INDEX    SYSXU1 SYSX.ICFCAT1
+0010 WJ.AIXTEST.AIX                               AIX      NO-VOL SYSX.ICFCAT1
+0011 WJ.DCOL.ISPTLIB                              NONVSAM  SYSXU3 SYSX.ICFCAT1
+0012 WJ.ASMA.MSGS                                 NONVSAM  SYSXU3 SYSX.ICFCAT1
+0013 WJ.A.DATASETS                                NONVSAM  SYSXU1 SYSX.ICFCAT1
+0014 WJ.CYC.XTRC                                  NONVSAM  SYSXU1 SYSX.ICFCAT1
+0015 WJ.A0.PARMLIB                                NONVSAM  SYSXU3 SYSX.ICFCAT1
+0016 WJ.AM.CNTL2                                  NONVSAM  SYSXU3 SYSX.ICFCAT1
+0017 WJ.ASMAL.LIB                                 NONVSAM  SYSXU3 SYSX.ICFCAT1
+0018 WJ.DASDVOL.REPORT                            NONVSAM  SYSXU1 SYSX.ICFCAT1
+0019 WJ.AM.CNTL                                   NONVSAM  SYSXU1 SYSX.ICFCAT1
+0020 WJ.ASML.LIST                                 NONVSAM  SYSXU1 SYSX.ICFCAT1
+0021 WJ.ASMA.LIST                                 NONVSAM  SYSXU3 SYSX.ICFCAT1
+0022 WJ.DCOLLECT.LIB                              NONVSAM  SYSXU1 SYSX.ICFCAT1
+0023 WJ.DCOLLECT.JCL                              NONVSAM  SYSXU3 SYSX.ICFCAT1
+0024 WJ.DATADICT.EXPORT                           NONVSAM  SYSXU3 SYSX.ICFCAT1
+0025 WJ.DCOLLECT.DATA                             NONVSAM  SYSXU1 SYSX.ICFCAT1
+0026 WJ.DCOLLECT.BYVOL                            NONVSAM  SYSXU1 SYSX.ICFCAT1
+0027 WJ.ASMA.OBJ                                  NONVSAM  SYSXU3 SYSX.ICFCAT1
+0028 WJ.CYC.LIB.V1                                NONVSAM  SYSXU1 SYSX.ICFCAT1
+0029 WJ.DCOL.DATASET.REPORT                       NONVSAM  SYSXU3 SYSX.ICFCAT1
+0030 WJ.ALLMBR.CNTL                               NONVSAM  SYSXU1 SYSX.ICFCAT1
+0031 WJ.BACKUP.ALL.TRS                            NONVSAM  SYSXB2 SYSX.ICFCAT1
+0032 WJ.BACKUP.ALL                                NONVSAM  SYSXU1 SYSX.ICFCAT1
+//*-+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8
+//DFSPARM  DD *
+ OUTREC FIELDS=(1,4,10,44,64,6,4)
+* 10,44 = 44
+* 64,6  =  6  50
+* 4,30  =  30 80
+//SORTOUT  DD DUMMY
+//REXX     DD *
+ /*                                                                rexx
+ */
+ "execio * diskr data (stem dsnl. finis)"
+ say 'loaded#' dsnl.0 'rc'
+ say 'list before sort'
+ cc=RexxVars('list var(dsnl.#)')
+ cc=RexxVars('sort var(dsnl.#) fields(10,44,ch,a) mode(e)')
+ say 'sort rc' cc rexxvars_rsn
+ say 'list after sort'
+ cc=RexxVars('list var(dsnl.#)')
+//*

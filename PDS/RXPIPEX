@@ -1,0 +1,117 @@
+/*                                                                   rexx
+
+ RXPIPE - Drive the RXPIPE app, which is a free alternative to the
+ IBM PIPE program.
+
+ Do ALTLIB to your RXPIPE lib, then run the RXPIPE commnand.
+
+ Copy this member to your own SYSEXEC concat, You could copy it to
+ another name, i.e. PIPE, in order to use command PIPE to run the
+ program.
+
+ The 'rxpipelib' variable must be set to your RXPIPE app lib.
+
+ The 'QUIT STEM' command will not work with this setup as it requires
+ RXPIPE to run as a function.
+
+ 1st parameter - RXPIPE command string
+   DOC           View the reference manual.
+   INTRO         View the introduction.
+   USG           View the users guide.
+   cmd           RXPIPE command.
+
+ 2nd Parameter - RXPIPE options
+   SUBLIB name   Name of dataset(s) containing sub-routines for app.
+
+ Product info, members
+  RXPIPE    - main program
+  RXPIPEX   - driver, this member
+  RXPI@xxx  - documentation
+  RXPIxxxx  - subroutines
+
+ Install
+  Copy this member to your system REXX lib as RXPIPE, modify the
+  rxpipelib value.
+
+ Author
+  Willy Jensen
+  mail: willy@harders-jensen.com
+  web : http://harders-jensen.com
+
+*/
+
+ rxpipelib='your.RXPIPE.LIB'          /* <<--change */
+
+ if arg(1)='' then exit xmsg('Missing parameters')+8
+
+ parse value '' with sublib
+ if translate(word(arg(2),1))='SUBLIB' then sublib=word(arg(2),2)
+
+ parse source @sys @what @me @ddn @where .
+
+ if listdsi("'"rxpipelib"'")<>0 then ,
+   exit xmsg('lib' rxpipelib 'not found')+8
+
+ If translate(arg(1))='INTRO' then,
+   exit ISPX("Browse dataset('"rxpipelib"(RXPI@INT)')")
+ If translate(arg(1))='DOC'   then,
+   exit ISPX("Browse dataset('"rxpipelib"(RXPI@MAN)')")
+ If translate(arg(1))='USG'   then,
+   exit ISPX("Browse dataset('"rxpipelib"(RXPI@USG)')")
+
+ libdd='S' ||,
+  d2x(right(date('j')+1,1)(left(space(translate(time('l'),' ','.:'),0),7,0)))
+ "alloc dd("libdd") da("requotel(rxpipelib sublib)") shr"
+ if rc<>0 then exit xmsg('Alloc' rxpipelib sublib 'failed rc' rc)+8
+ "Altlib act appl(exec) dd("libdd") uncond"
+ if rc<>0 then exit xmsg('Altlib' rxpipelib 'failed rc' rc)+8
+
+ Call Silent 'Profile'
+ profrec=$.1
+ signal on error name Err
+ signal on syntax name Syn
+ push arg(1)                                     /* push parameter to stack  */
+ "Ex '"rxpipelib"(RXPIPE)' 'STACKCMD'"
+ cc=result
+
+ "Altlib deact appl(exec)"
+ "free dd("libdd")"
+
+ if @what='FUNCTION' then return cc
+ if datatype(cc)='NUM' then return cc
+ Exit Xmsg('returned' cc)
+
+XMsg: say 'RXPIPE' arg(1);return 0
+ISPX:
+ Address IspExec
+ "control errors return"
+ ""arg(1)
+ if rc<>0 then say rc zerrlm
+ return rc
+Silent:
+ zz=outtrap(word(arg(2) '$.',1));address tso arg(1);zz=outtrap('off');return rc
+Err:
+ if datatype(rc)='NUM' then if rc<100 then call quit2 '?' rc
+ Call Quit 'Error' rc
+Syn: Call Quit 'Syntax' rc
+Quit:
+ Call xmsg arg(1)
+Quit2:
+ rslt=word(arg(1),2)
+ "Altlib deact appl(exec)"
+ parse var profrec . 'PREFIX('pfx')' .
+ p='PREFIX('pfx')'
+ if wordpos('MSGID',profrec)>0 then p=p 'MSGID'
+ if wordpos('PROMPT',profrec)>0 then p=p 'PROMPT'
+ Call Silent "profile" p
+ if datatype(rslt)='NUM' then exit rslt
+ exit 16
+RequoteL: Procedure /* requote list */
+ p=translate(arg(1)," ","'")
+ r=''
+ do n=1 to words(p)
+   parse value word(p,n) with q1'.'.
+   if left(q1,3)='SYS' & length(q1)=8 then iterate /* drop sysnames */
+   r=r "'"word(p,n)"'"
+ end
+ return strip(r)

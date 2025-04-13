@@ -1,0 +1,199 @@
+ REXX highlevel program interface
+
+ Current version: 003.02 date 2024-04-29
+
+
+ General information
+
+  Assembler subroutine to give high-level programs access to REXX
+  services like reading and writing REXX variables, the TSO stack and
+  even starting a REXX underneath it. The module have an alias for C
+  programs that use null-terminated strings.
+
+  The subroutine is reentrant.
+
+  The program must run under REXX, even if it only acesses the TSO
+  stack, but it must not run under TSO, so you can run it using the
+  IRXJCL batch program.
+
+  The program must be 'called', i.e. Call MYCOBPGM. Neither as
+  function i.e. cc=MYCOBPGM() nor as TSO command i.e. Address TSO
+  "MYCOBPGM" will work.
+
+
+ Syntax
+
+   The parameters are positional. All calls must include the id- and
+   command parameters.
+
+
+  Implemented calls
+
+   CALL     Call REXX program.
+     Syntax: command, name, parm-addr, parm-len, resp-addr, resp-len
+    Name must be 8 bytes wide, but need not be in upper case. Resp-len
+    is the size of the response buffer, must be le 400. All parameters
+    are required, but parm-len can be set to 0 for no parm, and
+    resp-len can be set to 0 if no reponse is wanted. Parm-addr and
+    resp-addr may be the same field, If the call to the REXX fails,
+    i.e. name not found, then the failure rc is returned in the
+    resp-addr field and RXHLLK returns with code 5 (error), so the
+    resp-len should be at least 8. Also check any messages in
+    SYSTSPRT.
+
+   DISPLAY  Show some text at the terminal.
+     Syntax: command, text-addr, text-len
+
+   MSG      Alias for DISPLAY.
+
+   NEXT     Retrieve all REXX variables, one by one.
+     Syntax: command, name-addr, name-len, area-addr, area-len
+    Note that you cannot redo a NEXT, i.e. after a truncation event,
+    You must either RESET and start again, or save the variable name
+    and do a specfic VGET later.
+
+   NEXTF    Retrieve REXX variables filtered by variable name.
+     Syntax:  command, name-addr, name-len, area-addr, area-len, mask,
+              masklen
+    Mask characters are % for a single character, * for many or none.
+
+   PULL     Retrieve the top stack entry.
+     Syntax: Call: command, area-addr, area-len
+
+   PUSH     Add a stack entry at the top.
+     Syntax: Call: command, area-addr, area-len
+
+   QUEUE    Add a stack entry at the bottom.
+     Syntax: Call: command, area-addr, area-len
+
+   REPULL   Retrive latest PULL data, i.e. after a truncation event.
+     Syntax: Call: command, area-addr, area-len
+
+   RESET    Reset a current NEXT.
+    Used to (re)start NEXT processing,
+    i.e. after a truncation event.
+
+   TERM     Drop retained control blocks. Required if the program was
+            called with an id. Otherwise the control blocks are left
+            orphaned.
+     Syntax: Call: command
+
+   VGET     Retrieve one named REXX variable.
+     Syntax: Call: command, name-addr, name-len, area-addr, area-len
+
+   VPUT     Writes one named REXX variable.
+     Syntax: Call: command, name-addr, name-len, area-addr, area-len
+
+   VSTAT    Obtain the count of variables, the max name width and the
+            max data width.
+     Syntax: Call: command, count, namewidth, datawidth
+    Usefull if you want to ensure a big enough data area for NEXT.
+    Count and width are integers.
+
+   Notes
+    -  The area-len will be updated by the interface for the VGET,
+       NEXT and PULL commands,
+    -  The name is up-cased internally for VGET and VPUT.
+    -  The name-addr and len describes the name receiver field for the
+       NEXT, pull and REPULL commands.
+    -  Prefixing the command with a question mark will activate
+       tracing of the command, i.e. ?VGET.
+
+
+  Return codes
+    0  ok
+    1  Data retrieved, but truncated.
+    2  Variable not found or end of NEXT or stack is empty.
+    3  Bad command
+    4  Something bad happened, check messages. The subroutine
+       uses TSO PUTLINE, so mesages can be OUTTRAPed.
+
+
+ Samples
+
+  COBOL VGET sample
+
+      DATA DIVISION.
+      WORKING-STORAGE SECTION.
+       01 hliid   PIC x(8) .
+       01 hlicmd  PIC x(8) .
+       01 nameval PIC x(100) .
+       01 namelen PIC 9(5)  COMP.
+       01 textval PIC x(250) .
+       01 textlen PIC 9(5)  COMP.
+       01 rc      PIC 9(5)  COMP.
+
+           move "VGET" to hlicmd.
+           move "TESTVAR" to nameval.
+           move 7 to namelen.
+           move spaces to textval.
+           move length of textval to textlen.
+           CALL "RXHLLK"
+             using hliid hlicmd nameval namelen textval textlen
+             returning rc.
+
+  C VGET sample
+
+    #include <stdio.h>
+    #include <string.h>
+    #pragma linkage (rxhllkc, OS)
+    main () {
+     extern int rxhllkc();
+     int retcode;
+     char hlicmdÝ9¨;      /* command              */
+     char nameÝ61¨;       /* varname              */
+     int  namelen;        /* name or field length */
+     char textÝ121¨;      /* text                 */
+     int  textlen;        /* text or field length */
+
+     retcode = 0;
+     strcpy (hlicmd, "VGET    "); /* must be 8 bytes           */
+     strcpy (name, "TESTVAR");
+     namelen = strlen(name) ;     /* length of the actual name */
+     textlen = 120;               /* data buffer length        */
+     retcode = rxhllkc (hlicmd, name, &namelen, text, &textlen);
+     printf("rc is %d, text is %d '%s' \n", retcode, textlen, text);
+
+   More elaborate samples in the members RXHL$COB, RXHL$CPL and
+   RXHL$PLI.
+
+ Install
+
+  Modify and run member RXHL$MOD to install the modules.
+
+
+ Members
+
+  RXHL$COB  COBOL demo
+  RXHL$CPL  C demo
+  RXHL$PLI  PL/I demo
+  RXHLDOC   Documentation (this member)
+  RXHLLK    Install the module
+  RXHLMACS  Local macros
+  RXHLRXT   REXX test pgm, used by the demos.
+  REXXMACS  Assembler macros for REXX access
+  SYSMACS   Collection of dvlsys assembler macros
+  WSAMMACS  Assembler macros for conditional assembly
+
+
+ Author
+  Willy Jensen
+   mail  willy@harders-jensen.com
+   web   http://harders-jensen.com     (newest version here)
+
+
+ Disclaimer
+
+  The product is totally freeware and can be distributed and modified
+  as you like, though the author would like to know of enhancements
+  made, so that they might be incooporated into the base product.
+
+  The author accepts no responsibility for any damage caused by the
+  product not behaving as expected or as documented. It is after all
+  free.
+
+  Questions and comments should be sent to the email address,
+  enhancement requests are especially welcome.
+
+  If you experience problems then check the website for an updated
+  version.

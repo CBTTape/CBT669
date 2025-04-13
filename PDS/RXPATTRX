@@ -1,0 +1,62 @@
+/*                                                                     rexx
+ PATTERN function - Performs ISPF-like pattern matching on a pair of
+ strings: 1st string is the pattern, 2nd is the data.
+ Parameters   mask,stringÝ,maskchrs¨
+ Returns   0  (false)  not matched or missing parm
+           1  (true )  match
+ Sample:  rc=RxPatMat('*EFG*','ABCDEFGH')
+
+ Version
+  2023-02-09
+
+ Author
+  Willy Jensen
+  mail: willy@harders-jensen.com
+  web : http://harders-jensen.com
+*/
+ if arg()<2 then exit 0
+ parse arg msk,str,mchr
+ parse value word(mchr '*%',1) with mchr 1 mcm +1 mco  /* split mask chrs    */
+ parse value 1 1 length(msk) length(str) with mp sp ml sl .
+ do while mp<=ml & sp<=sl
+   select
+     when substr(msk,mp,1)=mco then,                   /* mask starts with % */
+       parse value mp+1 sp+1 with mp sp                /* bump ptrs          */
+     when substr(msk,mp)=mcm then return 1             /* match on rest      */
+     when substr(msk,mp,2)=mchr then do                /* both mask chrs     */
+       mp=mp+1
+       msp=verify(msk,mco,'n',mp+1)                    /* mak sub-str pos    */
+       if msp=0 then return (ml-mp)=(sl-sp)            /* rest mask is %s    */
+       p=verify(msk,mchr,'m',msp)
+       if p>0 then msl=p-msp
+       else msl=ml+1-msp
+       ms=substr(msk,msp,msl)                          /* mask substring     */
+       mpl=msp-mp                                      /* mask chrs len      */
+       p=pos(ms,str,sp+mpl)
+       if p=0 then return 0
+       sp=p-mpl
+     end
+     when substr(msk,mp,2)=mcm||mcm then mp=mp+1       /* double '*'         */
+     when substr(msk,mp,1)=mcm then do                 /* '*'                */
+       mp=mp+1                                         /* bump mask          */
+       p=verify(msk,mchr,'m',mp)                       /* -> end mask chr    */
+       if p=0 then return substr(msk,mp)=right(str,ml-mp+1) /* no more maskc */
+       ms=substr(msk,mp,p-mp)                          /* mask substr        */
+       msl=length(ms)
+       mp=p
+       p=pos(ms,str,sp)                                /* locate in string   */
+       if p=0 then return 0                            /* not found          */
+       sp=p+msl
+     end
+     when substr(str,sp,1)<>substr(msk,mp,1) then return 0 /* not matched    */
+     otherwise do
+       p=verify(msk,mchr,'m',mp)                       /* locate msk chr     */
+       if p=0 then return substr(msk,mp)=substr(str,sp)/* no more mask chrs  */
+       l=p-mp
+       if substr(msk,mp,l)<>substr(str,sp,l) then return 0
+       mp=mp+l
+       sp=sp+l
+     end
+   end
+ end
+ return (mp>ml & sp>sl ) | (mp=ml & substr(msk,mp)='*') /* both exhausted ?   */

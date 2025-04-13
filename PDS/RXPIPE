@@ -1,0 +1,1897 @@
+/*                                                             rexx */
+ $version='008.4 2024-10-22.1'
+/*
+
+ RXPIPE - Emulate the PIPE command using REXX facilities
+
+ Ver 008
+
+ Updates (current version, see member RXPIHIST for earlier builds)
+  2024-09-30  Option(s) may now be 1st word of command. It must start with
+              a '-'. So far the only option is NOISPF.
+  2024-09-30  Fix problem with 'DROP BLOCK FROM xxx TO BEFORE yyy'
+  2024-10-03  Add option SCRW(screen-width)
+  2024-10-22  Add COLS command.
+
+ Author
+  Willy Jensen
+  mail: willy@harders-jensen.com
+  web : http://harders-jensen.com
+
+ Disclaimer
+
+  The product is totally freeware and can be distributed and modified
+  as you like, though the author would like to know of enhancements
+  made, so that they might be incooporated into the product.
+
+  The author accepts no responsibility for any damage caused by the
+  product not behaving as expected or even as documented. It is after
+  all free.
+
+  Questions and comments should be sent to the email address,
+  enhancement requests are especially welcome.
+
+  If you experience problems then check the website for an updated
+  version.
+
+*/
+ Address TSO
+ parse source @sys $maincall @me @ddn @where .
+ $pcmd = strip(arg(1))
+ if abbrev('VERSION',translate($pcmd),3) then do
+   if $maincall='FUNCTION' then return $version
+   exit Xmsg(@me $version)
+ end
+ if $pcmd='' then exit Xmsg(@me $version 'Some sort of input is required')
+ parse value 0 with ?ispf $popts
+ ?bg = left(sysvar('sysenv'),1)<>'F'  /* Fore/Back */
+ if translate($pcmd)='STACKCMD' then do
+   if queued()=0 then exit Xmsg(@me 'STACKCMD - stack is empty')
+   parse pull $pcmd
+ end
+ if left($pcmd,1)='"' then $pcmd = strip($pcmd,'b','"')
+ if left($pcmd,1)="'" then $pcmd = strip($pcmd,"b","'")
+ if left($pcmd,1)='-' then do                    /* options               008*/
+   parse var $pcmd $popts $pcmd
+   $popts=translate(','substr($popts,2)',')
+   parse var $popts . ',SCRW('p'),' .
+   if p<>'' then $scrwdth = p
+ end
+
+ /*                       - GO -                                      */
+ /*Interpret RxpiInit()  */   /* future */
+ if  Sysvar('SYSISPF')='ACTIVE' & pos(',NOISPF,',$popts)=0,
+   & symbol('$scrwdth')='LIT' then do
+   Address Ispexec "Control errors return"
+   if rc=0 then do
+     Address Ispexec "vget zscrmaxw"
+     $scrwdth=zscrmaxw
+     ?ispf=1
+   end
+ end
+ if symbol('$scrwdth')<>'VAR' then $scrwdth=80
+
+ $vcl='abcdefghijklmnopqrstuvwxyz'
+ $vcl=$vcl||translate($vcl)'0123456789$@#'
+ $cval='CLEAR 2 DSNLIST 4 FILTER 2 LIST 1 TERMINAL 4',  /* abbreviations */
+       'REPLACE 4 MBRLIST 4 READ 1 WRITE 1 CATSEARCH 4 PDSLIST 4',
+       'INCLUDE 3 EXCLUDE 3 COMBINE 4 COMPARE 4 SKELETON 4 LITERAL 3'
+ $cvrbtri='zSTRIP'                      /* change command to internal     */
+ $cvrbtro='zSTRIPC'                     /* to avoid confusion             */
+ parse value '| & \' with $sepc $and $escc $lastdd $lastds $lastcmd,
+  $haltonrc
+ parse value 1 1 1 copies('0 ',20) with $ifcond $cond. $condlvl,
+   $xrc $cmdn $set $msglvl ?noprefix ?setuserpfx ?retain $icmd. .
+ parse value userid() mvsvar('symdef','jobname') Sysvar('SYSPREF'),
+   with $user $jobname $userpfx 1 user jobname prefix 1 me .
+ Call Xtso "listc ent('SYS1.PARMLIB')"
+ mcatname=word($.2,3)
+ Call Xtso "listc ent('"mcatname"') vol"
+ n=$.0
+ mcatvol=word(translate($.n,' ','-'),2)
+
+ if Verify($pcmd,'0203040506070809'x,'m') then,
+   call quit 'rc 8 msg Command contains restricted chars 02-09x'
+ $pcmd = strip($pcmd)
+ $globalv='?ispf $xrc $initstack# $stacked $lastdd $lastds $lastcmd',
+  '$scrwdth $userpfx ?setuserpfx ?rxpattrn ?retain $escc $msglvl $maincall'
+
+ /* make list of internal commands */
+ n=0
+ do $=1 to Sourceline()
+   w=word(sourceline($),1)
+   if left(w,1)<>'0' then iterate
+   w=translate(space(translate(w,' ',':')))
+   parse value translate(w) with =2 w ':' .
+   $icmd.w=1
+   n=n+1
+ end
+ if n=0 then exit xmsg('No internal commands found*****')+20
+ /*call rexxvars 'list var($icmd*)'*/
+ /* verify external programs       */
+ /*?RxVsamBa=LocatePgm('RxVsamba')
+   ?RexxGblv=LocatePgm('RexxGblv') */
+
+ /* handle initial stack */
+ $initstack#=StackNum()
+ if left($pcmd,1)=$sepc then do             /* use callers stack         */
+   $pcmd=substr($pcmd,2)                    /* drop pipe separator       */
+   Call 0SAVE '0 stacked' queued() 'CLEAR'
+   "newstack"
+   Call 0LOAD '0'
+   drop $str.
+ end                                        /* no initial, just make new */
+ else "newstack"
+
+ /*====================================================================
+
+   Process command stream
+   Each command is separated by the command delimiter
+
+ ====================================================================*/
+ Call SetNoPrefix
+ /* Generate interpretable pgm */
+ if right(strip($pcmd),1)='|' then $pcmd=$pcmd || "Quit RETAIN"
+ /* if last cmd is 'STEM name' then change to 'QUIT STEM name' */
+ p=lastpos('|',$pcmd)
+ if p>0 then do
+   parse var $pcmd =(p) +1 l
+   if translate(word(l,1))='STEM' then $pcmd=insert('QUIT ',$pcmd,p+1)
+ end
+ g=''
+ do while $pcmd<>''
+   parse var $pcmd f '|' $pcmd
+   f=strip(f)
+   if right(f,1)='\' then,
+     $pcmd=left(f,length(f)-1) || '01'x || $pcmd
+   else if wordpos(translate(word(f,1)),'IF ELSE END')>0 then g=g';' f
+   else if wordpos(translate(lastword(g)),'THEN ELSE')>0 then,
+       g=g 'Call 00EXEC "'f'"'
+   else g=g';Call 00EXEC "'f'"'
+ end
+ if right(g,1)='>' then ,
+   g=left(g,length(g)-1) || "Call Quit 'RETAIN'" /* quit, leave stack */
+
+ Interpret substr(translate(g,'|','01'x),2)
+ /* all done */
+ Call Quit
+say 'Gend cmd->'  substr(translate(g,'|','01'x),2)
+
+00EXEC:                                          /* executor                 */
+ trace off
+ parse value 0 0 queued() StackNum() with,
+   ?build ?where $stacked $stacknum $vv
+ parse arg $c
+
+ /* some special character commands */
+ select
+   when left($c,1)='<' then do
+     if datatype(word(substr($c,2),1))='NUM' then,
+       $c='LOAD' space(substr($c,2))
+     else $c='READ' strip(substr($c,2))
+   end
+   when left($c,2)='>>' then $c='WRITE' strip(substr($c,3)) 'APPEND'
+   when left($c,1)='>'    then do
+     if datatype(space(substr($c,2)))='NUM' then,
+       $c='SAVE' space(substr($c,2)) 'CLEAR'
+     else $c='WRITE' strip(substr($c,2))
+   end
+   otherwise nop
+ end
+ parse var $c $cmdverb $cmddata
+ upper $cmdverb
+ $cmddata=strip($cmddata)
+
+ /* get real cmdverb */
+ do $=1 to words($cval) by 2 while $vv=''
+   parse value subword($cval,$,2) with $v $l .
+   if abbrev($v,$cmdverb,$l) then $vv=$v
+ end
+ if $vv<>'' then $cmdverb=$v
+
+ parse value '' with  $build $where
+ $cmdsave=$cmddata
+ $cmddata=vsub($cmddata)
+ $=wordpos($cmdverb,$cvrbtri)                /* beware of some commands */
+ if $>0 then $cmdverb=word($cvrbtro,$)       /* same as REXX functions  */
+ upper $cmdverb
+ $cmd=$cmdverb $cmddata
+ $cmddata=strip($cmddata)
+
+ parse value 0 with $rc result $result
+ /* internal */
+ if $icmd.$cmdverb then do                   /* detected internal command */
+   signal on syntax name RunCmdSyntaxI
+   Interpret "$result=0;result=0"$cmdverb"($cmddata)"
+   if $msglvl>0 then say '(LOG-int)' $cmd 'result' result
+   Return RunCmdResult()
+ end
+ /* external */
+ result=XtsoStack($cmd)
+ if $msglvl>0 then say '(LOG-ext)' $cmd 'result' result
+ if result>=0 then Return RunCmdResult()
+ $zrc=result
+ Call 0FILTER 'NOTNULL'
+ r=''
+ if queued()>0 then do
+   parse pull r
+   r='text' r
+ end
+ call Quit 'rc 8 msg cc' space($zrc 'after' $cmd r)
+
+RunCmdResult:
+ trace off
+ signal off syntax
+ $result=result
+ if datatype(result)='NUM' then $rc=result
+ if $rc<0 | $rc>900 then $haltonrc=$rc
+ $lastcmd=$cmdverb
+ if $haltonrc<>'' then,
+   if $rc>=$haltonrc then call 0quit 'clear rc 8 msg Halt on' $cmdverb 'cc' $rc
+ return 0
+say 'RunCmdResult result' result
+
+RunCmdSyntaxI:
+ zz=outtrap('off')  /* just in case */
+ Call quit 'rc' rc 'msg Abort due to cc' rc 'cmd "'$cmd'"'
+ Return RunCmdResult()
+
+ /*====================================================================
+
+   Internal support functions
+
+ ====================================================================*/
+
+Xmsg: if arg(1)<>'' then say arg(1);return word(arg(2) 0,1)
+
+Xtso: zz=arg(1); zz=outtrap(word(arg(2) '$.',1))  /* trap TSOcmd */
+ address tso arg(1);zz=outtrap('off');xtsorc=rc;return rc
+XtsoStack:
+ $result=Xtso(arg(1))
+ do $=1 to $.0
+   queue  $.$
+ end
+ Return $result
+
+vsub:   /* replace variables with values */
+ $date=Insert('-',Insert('-',date('s'),6),4)
+ $time=time()
+ $vsp=1
+ $vsubp='?'arg(1)
+ do $vsa=1 to 9999
+   $vsp=pos($and,$vsubp,$vsp)
+   if $vsp=0 then leave $vsa
+   if substr($vsubp,$vsp-1,1)=$escc then do
+     $vsubp=delstr($vsubp,$vsp-1,1)
+     iterate $vsa
+   end
+   if substr($vsubp,$vsp+1,1)=' '  then iterate   /* ignore lone &   */
+   /* substitute */
+   parse var $vsubp $rvl =($vsp) +1 $rvr
+   $v=Verify($rvr' ',$vcl,'n')
+   parse var $rvr $rvv =($v) $rvr
+   if left($rvr,1)='.' then $rvr=substr($rvr,2)
+   if symbol($rvv)='VAR' then $vsubp=$rvl || value($rvv) || $rvr
+   else if symbol($rvv)='LIT' then $vsubp=$rvl || $rvr
+   else Call 0Quit 'rc 8 msg Bad variable name' translate($rvv)
+ end
+ return substr($vsubp,2)
+
+PgmSyntax:
+ trace off
+ say '*Syntax error in line' sigl':' Errortext(rc)
+ say strip(sourceline(sigl),'t')
+ signal off syntax
+ say 'Command was:' $cmd
+ Call Quit 12
+PgmNoVal:
+ trace off
+ say '*Novalue raised for line' sigl '-'
+ say strip(sourceline(sigl),'t')
+ signal off novalue
+ Call Quit 12
+
+PullParse:
+ trace off
+ parse pull r
+ if translate(arg(1))='R' then queue r  /* restack */
+ Return Parserec(r)
+Parserec:
+ trace off
+ parse arg r 1 w1  w2  w3  w4  w5  w6  w7  w8  w9  w10 ,
+               w11 w12 w13 w14 w15 w16 w17 w18 w19 w20 .
+ return 0
+
+Requote: if arg(1)='' then return '';else return "'"Unquote(arg(1))"'"
+UnQuote: trace off; return, /* drop outer quotes, preserve inner blanks */
+ translate(strip(strip(translate(arg(1),'04'x,' '),"b","'"),'b'),' ','04'x)
+DropQuote:   /* drop all quotes, also inside text */
+ @=translate(arg(1),'04'x,' ')    /* blanks to something else */
+ @=translate(@,' ',"'")           /* quotes to blanks         */
+ @=space(@,0)                     /* drop all blanks          */
+ return translate(@,' ','04'x)    /* restore blanks           */
+LCase: return translate(arg(1),xrange('a','z'),xrange('A','Z'))
+UCase: return translate(arg(1))
+Ucase1: return bitor(LCase(arg(1)),'40'x)
+Lastword:
+ if words(arg(1))>0 then return word(arg(1),words(arg(1)))
+ return ''
+p2d: procedure /* convert packed decimal to number */
+ n = c2x(arg(1))
+ l = length(n)
+ parse var n n =(l) s
+ if s = 'D' then return n*(-1)
+ return n
+Pj2d: Procedure /* make packed julian date to dashed */
+ jd = right(p2d(arg(1)),7)
+ parse var jd cn +2 yy +2 ddd +3
+ if cn='01' then cn='19'
+ else cn='20'
+ bd = date('b',cn''yy'0101','s')-1+ddd
+ sd = date('s',bd,'b')
+ return Insert('-',Insert('-',sd,6),4) /* base to dashed     */
+CheckNum:       /* verify that not-null variables have numeric content */
+ err=''
+ do n=1 to words(arg(1)) while err=''
+   p=translate(word(arg(1),n))
+   v=value(p)
+   if v='' then iterate
+   if datatype(value(v))<>'NUM' then err='Bad' p 'value' v
+ end
+ return err
+CheckMult:      /* check for mutually exclusive parms                  */
+ err=''
+ m=0
+ do n=1 to arg()
+   m=m+(length(arg(n))>0)
+ end
+ if m>1 then err='Mutually exclusive parms found'
+ return err
+TransSpcChr: Procedure
+ parse arg s,n,o     /* string,new-char,old-char */
+ s='?'s
+ p=1
+ do forever    /* change \: to single special char */
+   p=pos(o,s,p+1)
+   if p=0 then return substr(s,2)
+   if substr(s,p-1,1)='\' then s=delstr(s,p-1,1)
+    else s=overlay(n,s,p)
+ end
+MakeSelect: Procedure expose idn id. wh. fd.
+ parse arg s,c
+ idn=0
+ s=strip(strip(s),'l',c)
+ do while s<>''
+   parse value strip(s) with id f (c) s
+   idn=idn+1
+   parse value id '1 R' with id.idn wh.idn fd.idn w
+   f='  'f                                       /* reqd for later parse     */
+   p=pos(' WHERE ',translate(f))
+   if p>0 then parse var f f =(p) . w
+   if w<>'' then wh.idn=strip(w)
+   if f<>'' then fd.idn=strip(F)
+ end
+ return 0
+HasAll:  /* must have all */
+ $a=arg()
+ if $a=0 then return 0
+ do $=1 to $a
+   if pos(arg($),r)=0 then return 0
+ end
+ return 1
+HasAny: /* must have one */
+ $a=arg()
+ if $a=0 then return 0
+ do $=1 to $a
+   if pos(arg($),r)>0 then return 1
+ end
+ return 0
+HasNot: /* must have none */
+ $a=arg()
+ if $a=0 then return 1
+ do $=1 to $a
+   if pos(arg($),r)>0 then return 0
+ end
+ return 1
+SetNoPrefix:
+ if $userpfx<>'' then do
+   address tso "Profile noprefix"
+   ?setuserpfx=1
+ end
+ return 0
+
+LocatePgm: Procedure                             /* verify external program  */
+ signal on syntax name LocatePgmErr
+ Interpret "cc="arg(1)"()"
+ return 1
+LocatePgmErr: return 0
+
+/* Parse string by keywords, return executable command.
+   If same name is found multiple times, the last one wins.
+   Syntax: r=KParse(string,verb-list,prefix,default)
+   Sample: $r = "dsn sys1.parmlib when pos('howdy',w1)>0",
+                "build w1 left(w2,8) retain"
+           Interpret KParse($r,'build dsn when retain','@',1)
+                               "'@',1))
+           returns:
+            @BUILD   = w1 left(w2,8)
+            @DSN     = sys1.parmlib
+            @RETAIN  = 1
+            @WHEN    = pos('howdy',w1)>0
+*/
+KParse:
+ trace off
+ parse value '020406'x with eor +1 bc +1 qc +1 rtn
+ parse arg rec,kwl,pfx,dflt
+ if rec='' then return "rc=0;err=''"
+ rec=rec eor                                /* add eor marker */
+ kwl=translate(kwl) eor                     /* keyword list */
+ /* translate blanks to 04x inside quotes, then quotes to 06x */
+ do forever
+   ps=pos("'",rec)                          /* quote start     */
+   if ps=0 then leave
+   pe=pos("'",rec,ps+1)                     /* quote end       */
+   if pe=0 then call quit "rc 8 msg Missing end quote"
+   rec=overlay(translate(substr(rec,ps,pe-ps+1),bc||qc," '"),rec,ps)
+ end
+ /* do split */
+ do while word(rec,1)<>eor                  /* find keyword match */
+   do n=2 to words(rec)
+     w=translate(word(rec,n))
+     if wordpos(w,kwl)>0 then leave
+   end
+   p=wordindex(rec,n)
+   parse var rec vrb data =(p) rec
+   if data='' then data=dflt
+   rtn=rtn";"pfx||vrb"="""strip(data)""""
+ end
+ return "rc=0;err=''"translate(rtn," '",bc||qc)
+
+PParse:   /* pull positional parameters from string, make $p1-$pn */
+ $n=0
+ parse value '' with $p1 $p2 $p3 $p4 $p5 $p6 $p7 $p8 $p9 $p10
+ parse arg $p,$c    /* $ c= count of positionals to pull */
+ $c=word($c 99999,1)
+ do forever   /* preseve escaped quotes */
+   $=pos("\'",$p)
+   if $=0 then leave
+   $p=delstr($p,$,1)
+   $p=overlay('02'x,$p,$)
+ end
+ do while $p<>''
+   $p=strip($p)
+   $n=$n+1
+   if left($p,1)="'" then parse var $p +1 $s "'" $p
+   else if left($p,1)='"' then parse var $p +1 $s '"' $p
+   else parse var $p $s $p
+   zz=Value('$p'$n,translate($s,"'",'02'x))
+   if $n=$c then leave  /* got'm all */
+ end
+ zz=Value('$p#',$n)                       /* set count */
+ zz=Value('$pr',translate($p,"'",'02'x))  /* rest      */
+ return 0
+
+/* build expression */
+MakeExpr: Procedure expose ($globalv)
+ parse arg $p1,$r
+ $r=word($r 'R',1)
+ select
+   when left($p1,1)="'" then $p1="pos("$p1","$r")>0"
+   when left($p1,1)="=" then $p1=$r''$p1
+   when datatype($p1)='NUM' then $p1=$r'='$p1
+   otherwise nop
+ end
+ return $p1
+
+IsNum: return (datatype(arg(1))='NUM')
+RvReset: parse value '' with rc result;return 0
+RvSet:if symbol('RESULT')<>'VAR' then result='';$result=result;return 0
+StackNum: trace off; Address TSO "qstack" ; return rc
+Delverb: trace off
+ $=wordpos(translate(arg(1)),translate(arg(2)))
+ if $=0 then return arg(2)
+ return delword(arg(2),$,1)
+Where:
+ if \?where then return 1
+ parse arg $p 1 $p1 $p2
+ Call Parserec arg(1)
+ if translate($p1)='MASK' then return Mask(Unquote($p2),r)
+ Interpret "Return ("$where")"
+AddRec:
+ parse arg $addrec
+ if ?build | ?where then Call Parserec $addrec
+ $c=1
+ if ?where then do
+   if translate(word($where,1))='MASK' then,
+     $c=Mask(Unquote(subword($where,2)),r)
+   else Interpret '$c='$where
+ end
+ if \$c then return 0
+ if ?build then Interpret '$addrec='$build
+ queue $addrec
+ return 0
+TestPgm:
+ signal on syntax name Testpgme
+ Interpret "zz="arg(1)
+ return 1           /* true  */
+Testpgme: return 0   /* false */
+DropInsideBlanks: Procedure expose ($globalv)
+ parse arg s
+ do until $=0
+   $=pos(' )',s)
+   if $>0 then s=delstr(s,$,1)
+ end
+ do until $=0
+   $=pos('( ',s)
+   if $>0 then s=delstr(s,$+1,1)
+ end
+ return s
+TestExpr: Interpret "return ("arg(1)")"
+
+/* MASK function - Performs ISPF-type pattern matching on a pair
+   of strings: 1st string is the pattern, 2nd is the data.
+   Parameters   mask,stringÝ,maskchrs¨
+   Returns   0  (false)  not matched or missing parm
+             1  (true )  match
+   Sample:  rc=RxPatMat('*EFG*','ABCDEFGH')                            */
+Mask: Procedure expose ($globalv)
+ if arg()<>2 then Call Quit 'rc 8 msg bad number of mask parms'
+ parse arg msk,str,mchr
+ parse value word(mchr '*%',1) with mchr 1 mcm +1 mco  /* split mask chrs    */
+ parse value 1 1 length(msk) length(str) with mp sp ml sl .
+ do while mp<=ml & sp<=sl
+   select
+     when substr(msk,mp,1)=mco then,                   /* mask starts with % */
+       parse value mp+1 sp+1 with mp sp                /* bump ptrs          */
+     when substr(msk,mp)=mcm then return 1             /* match on rest      */
+     when substr(msk,mp,2)=mchr then do                /* both mask chrs     */
+       mp=mp+1
+       msp=verify(msk,mco,'n',mp+1)                    /* mak sub-str pos    */
+       if msp=0 then return (ml-mp)=(sl-sp)            /* rest mask is %s    */
+       p=verify(msk,mchr,'m',msp)
+       if p>0 then msl=p-msp
+       else msl=ml+1-msp
+       ms=substr(msk,msp,msl)                          /* mask substring     */
+       mpl=msp-mp                                      /* mask chrs len      */
+       p=pos(ms,str,sp+mpl)
+       if p=0 then return 0
+       sp=p-mpl
+     end
+     when substr(msk,mp,1)=mcm then do                 /* '*'                */
+       mp=mp+1                                         /* bump mask          */
+       p=verify(msk,mchr,'m',mp)                       /* -> end mask chr    */
+       if p=0 then return substr(msk,mp)=right(str,ml-mp+1) /* no more maskc */
+       ms=substr(msk,mp,p-mp)                          /* mask substr        */
+       msl=length(ms)
+       mp=p
+       p=pos(ms,str,sp)                                /* locate in string   */
+       if p=0 then return 0                            /* not found          */
+       sp=p+msl
+     end
+     when substr(str,sp,1)<>substr(msk,mp,1) then return 0 /* not matched    */
+     otherwise do
+       p=verify(msk,mchr,'m',mp)                       /* locate msk chr     */
+       if p=0 then return substr(msk,mp)=substr(str,sp)/* no more mask chrs  */
+       l=p-mp
+       if substr(msk,mp,l)<>substr(str,sp,l) then return 0
+       mp=mp+l
+       sp=sp+l
+     end
+   end
+ end
+ return (mp>ml & sp>sl ) | (mp=ml & substr(msk,mp)='*') /* both exhausted ?   */
+
+SetFileInfo: Procedure expose ($globalv) $fn $ft $fm
+ parse value 0 with $rc $fn $ft $fm $err /* rc name type member msg */
+ parse arg $prm 0 $f'('$fm')' .
+ $uf=translate($f)
+ select
+   when left($uf,3)='DD=' & $fm='' then,
+     parse value 'F' substr($prm,4) with $ft $fn
+   when left($uf,4)='DSN=' then,
+     parse value 'D' substr($prm,5) with $ft $fn
+   when left($uf,5)='PATH=' then,
+     parse value 'P' substr($prm,6) with $ft $fn
+   when left($uf,2)='&&' then parse value 'D' $prm with $ft $fn
+   when pos('/',$prm)>0 then parse value 'P' $prm with $ft $fn
+   when $uf='DUMMY'     then parse value 'D' $prm with $ft $fn
+   when $uf='SYSOUT'    then parse value 'S' $prm with $ft $fn
+   when $uf='INTRDR'    then parse value 'I' $prm with $ft $fn
+   when $uf='TEMP'      then do
+     parse value 'D',
+       '&&Z'd2x(space(translate(substr(time('l'),5,10),' ','.:'),0)),
+       || substr($f,5) with $ft $fn
+     if $fm<>'' then $fn=$fn'('$fm')'       /* add member if defined */
+   end
+   when Verify($prm,'.(','m')=0 then parse value 'F' $prm with $ft $fn
+   when pos('.',$prm)=0 & pos('(',$prm)>0 then do
+     if left($uf,3)='DD=' then $f=substr($f,4)
+     $c=BpxWdyn('info dd('$f') inrtdsn($f)')
+     if $c<>0 then call quit 'rc 8 msg GetDsn by' arg(1) 'cc' $c
+     else parse value 'D' $f'('$fm')' with $ft $fn
+   end
+   otherwise parse value 'D' $prm with $ft $fn
+ end
+ if $ft='D' & left($fn,1)='.' then $fn=userid()''$fn
+ return $rc
+
+QStrTrans: /* translate chars to hex inside quotes, then quotes to hex */
+ parse arg $p
+ do forever
+   $s=pos("'",$p)                           /* quote start     */
+   if $s=0 then return $p
+   $e=pos("'",$p,$s+1)                      /* quote end       */
+   if $e=0 then call quit "rc 8 msg Missing end quote"
+   $p=overlay(translate(substr($p,$s,$e-$s+1),'030405'x,"' |"),$p,$s)
+ end
+QStrUndo: return translate(arg(1),"' |",'030405'x)  /* undo QStrTans */
+
+UnEsc: Procedure
+ parse arg p,w
+ w=word(arg(3) '\',1)||arg(2)
+ do forever
+   n=pos(w,p)
+   if n=0 then return p
+   p=delstr(p,n,1)
+ end
+
+ /*====================================================================
+
+   PIPE commands
+
+=====================================================================*/
+
+QUIT: Call 0QUIT arg(1)             /* QUIT terminate program  */
+QUITCLR: Call 0QUIT 'CLEAR' arg(1)  /* QUIT terminate program  */
+0QUIT:
+ trace off
+ signal off error
+ signal off syntax
+ if ?setuserpfx then address tso "Profile prefix("$userpfx")"
+ parse arg $prm
+ $prm=translate($prm," ",'"')
+ if arg()>0 & datatype(arg(1))='NUM' then $prm='RC' $prm
+ address tso
+ parse value 0 0 with @retain @clear @rc @msg @val @stem @var
+ Interpret KParse($prm,'rc msg val var retain clear stem','@',1)
+ $stacknum=StackNum()
+ if @retain then ?retain=1
+ if @clear  then parse value 0 0 0clear() with @retain ?retain .
+ $stacked = queued()
+ if @stem<>'' then do                        /* make stem */
+   if $maincall<>'FUNCTION' then do
+     @msg='**QUIT STEM is only valid with a function'
+     @rc=8
+     @stem=''
+   end
+   else do
+     $r=@stem'0='$stacked
+     do $i=1 to $stacked
+       parse pull r
+       /* change d-quotes to 2xd-quote */
+       p=length(r)+1
+       do forever
+         p=lastpos('"',r,p-1)
+         if p=0 then leave
+         r=insert('"',r,p)
+       end
+       $r=$r";"@stem||$i"="""strip(r,'t')""""
+     end
+   end
+ end
+ else do
+   drop q.
+   if ?retain then Call 0STEM 'save q.'     /* save current stack          */
+   else if $stacked>0 & wordpos($lastcmd,'LIST')=0 then Call 0LIST
+ end
+trace off
+ do n=2 to $stacknum                        /* drop down to the init stack */
+   "delstack"
+ end
+ if @stem<>'' then Exit $r                  /* exit with stem              */
+ if ?retain then Call 0STEM 'load q.'       /* replace callers stack       */
+
+ /* other termination options */
+ if @msg<>'' then say Unquote(@msg)
+ if @val<>'' then exit Unquote(@val)
+ if @var<>'' then exit Value(@var)
+ if @rc<>''  then exit @rc
+ exit $xrc
+
+/* SET  syntax: SET name='text'
+                SET var=var-expr WHERE sel-expr
+                    var-expr  evaluate to a value
+                    sel-expr  test     */
+0SET:
+trace off
+ $set=1
+ $prm='_v' arg(1)
+ parse value '' with $val $where
+ Interpret KParse($prm,'_v where','$')
+ parse var $_v $vrb '=' $val
+ if $where='' then do /* explicit value */
+ /*zz=Value($vrb,$val) */
+   interpret $_v
+   return 0
+ end
+ /* pull from data stack */
+ $q=queued()
+ recnum=0
+ do $q
+   recnum=recnum+1
+   Call PullParse
+   Interpret "if ("$where") then" $vrb"="$val
+   queue r
+ end
+ return 0
+
+0FOREACH: /* foreach - do over stack */
+ trace off
+ $fedlm=':'
+ $fsc  ='09'x
+ if translate(word($cmdsave,1))='DLM' then,
+   parse var $cmdsave . $fedlm $cmdsave
+ $cmdsave=strip(strip($cmdsave),'l',$fedlm)
+ $fesave=$cmdsave
+ if $msglvl>0 then say '(LOG-for)' $cmdsave
+ $feq   =queued()
+ Call 0STEM 'make $fel.'
+ do $fen=1 to $feq
+   Call Parserec $fel.$fen
+   $fec=$fesave
+   $fec=TransSpcChr($fec,$fsc,$fedlm)
+   do until $fec=''
+     parse var $fec _ ($fsc) $fec
+     Call 00EXEC _
+   end
+ end
+ drop $fel.
+ if $msglvl>0 then say '(LOG-for) end..'
+ return 0
+
+0CALC: /* just some calculation?? */
+ Interpret "queue" $cmddata
+ return 0
+
+0COLS: /* make cols line */
+ w=word($cmddata 80,1)
+ l=''
+ do n=0 to w+10 by 10
+   m=length(n)
+   l=l || overlay(n,'----------')
+ end
+ queue left(substr(l,2),w)
+ return 0
+
+STAT: /* get stats for stacked entries, sets also first- and lastrec */
+0STAT:
+ trace off
+ parse value $stacked 999999 0 0 0 0 999999,
+   with count minlen maxlen totsz maxwlen minwlen firstrec lastrec .
+ if count=0 then call Quit 'rc 8 msg Cannot get status for empty stack'
+ parse pull firstrec
+ push firstrec
+ do count
+   parse pull $
+   $l=length($)
+   totsz=totsz+$l
+   parse value min(minlen,$l) max(maxlen,$l) with minlen maxlen .
+   do $n=1 to words($)
+     $l=length(word($,$n))
+     minwlen=min(minwlen,$l)
+     maxwlen=max(maxwlen,$l)
+   end
+   queue $
+ end
+ lastrec=$
+ avglen=totsz%count
+ recfm=word('V F',1+(minlen=maxlen))
+ if recfm='V' then maxlen=maxlen+4
+ return 0
+
+0ALLOC: Procedure expose ($globalv) $alcds $alcdd /* parms,Ýdisp¨,Ý'SUB'¨ */
+ trace off
+ arg $prm,$disp,$sub
+ parse arg $dsn .
+ parse var $prm . 'RECFM('alrf')' . 0 . 'LRECL('allr')' .,
+              0 . 'BLKSIZE('albs')' .
+ alrf=strip(left(alrf,1))
+ if wordpos('STDSYSIN',$prm)>0 then ,
+   $prm=delverb('STDSYSIN',$prm) Xallocprm('F','80','1')
+ if wordpos('STDSYSPRINT',$prm)>0 then ,
+   $prm=delverb('STDSYSPRINT',$prm) Xallocprm('F','121','4')
+ parse var $prm . $prm
+ if pos('DD(',translate($dsn $prm))=0 & $lastdd<>'',
+  then $prm=$prm 'DD('$lastdd')'
+ Call SetFileInfo $dsn
+ if $ft='P' then return Xallocpath()
+ $dsn=translate($fn)
+ if $ft='D' & wordpos('COND',$prm)>0 then do /* conditional new */
+   $prm=delverb('COND',$prm)
+   if Xtso("listcat ent('"$dsn"')")=0 then $prm='SHR' $prm
+   else $prm='NEW' $prm
+ end
+ if $ft='D' & wordpos('NEW',$prm)>0 & wordpos('CATALOG',$prm)=0 ,
+   then $prm=$prm 'CATALOG'
+ select
+   when $dsn='DUMMY' then $prm='DUMMY' $prm                /* dummy */
+   when $ft='D'      then $prm='da('$dsn')' $prm           /* dsn   */
+   otherwise $prm=$dsn $prm
+ end
+ if wordpos('NEW',$prm)>0 & pos('SPACE(',$prm)=0 then do /* calc space */
+   Call Stat
+   recfm=word(alrf recfm,1)
+   if maxlen>32750 then Call Quit 'rc 8 msg reclen' maxlen 'gt 32k'
+   $s=(avglen*count%27900)+1       /* space */
+   $l=maxlen
+   if recfm='V' then $l=max(maxlen,27994)
+   $l=word(allr $l,1)
+   /* remove duplicate parameters */
+   parse var $prm f 'LRECL('.')' b
+   $prm =space(f b)
+   parse var $prm f 'BLKSIZE('.')' b
+   $prm =space(f b)
+   parse var $prm f 'RECFM('.')' b
+   $prm =space(f b)
+   parse var $prm f 'UNIT('.')' b
+   $prm =space(f b)
+   $prm=$prm Xallocprm(recfm,$l,$s)
+ end
+ if wordpos('SHR',$prm)+wordpos('NEW',$prm)+wordpos('OLD',$prm)=0 then do
+   if pos('SPACE(',$prm)>0 then do
+     if $ft='D' then $prm=$prm 'NEW CATALOG'
+     else $prm=$prm 'NEW DELETE'
+   end
+   else $prm=$prm word($disp 'SHR',1)
+ end
+ $prm=DropInsideBlanks($prm)
+ if $dsn='INTRDR' then do  /* special case */
+   parse var $prm . 'DD('$dd')' .
+   $prm = 'Sysout(a) writer(INTRDR) dd('$dd')'
+ end
+ Return Xalloc()
+Xalloc:
+ s99msg.0=0
+ if $msglvl>0 then say 'Alloc' $prm
+ $rc=Bpxwdyn('alloc' $prm 'rtdsn($alcds) rtddn($alcdd)')
+ $result=$rc
+ if $rc=0 then do
+   $lastdd=$alcdd
+   $lastds=$alcds
+ end
+ if $rc<>0 & s99msg.0>0 then do
+   do $=1 to s99msg.0
+     say '->'s99msg.$
+   end
+ end
+ if $sub='SUB' then return $rc
+ if $rc=0 then return 0
+ Call Quit 'rc 8 msg Allocate' $prm 'cc' $rc
+XallocPrm: /* recfm,lrecl,trks */
+ Return 'RECFM('arg(1)',B) LRECL('arg(2)') SPACE('arg(3)','arg(3)')',
+        'TRACKS UNIT(SYSDA) BLKSIZE(0)'
+XallocPath:
+ parse var $prm $1 'PATHDISP('$pd')' $2
+ if $pd='' then $pd='keep'
+ $prm=space($1 $2 "pathdisp("$pd")")
+ if $disp<>'SHR' then do
+   parse value ' '$prm with $1 'PATHOPTS('$po')' $2
+   parse value $1 $2   with $1 'PATHMODE('$pm')' $2
+   parse value $1 $2   with $1 'FILEDATA('$fd')' $2
+   if $po='' then $po='ordwr,ocreat,otrunc'
+   if $pm='' then $pm='sirwxu'
+   if $fd='' then $fd='text'
+   $prm=space($1 $2 "pathopts("$po") pathmode("$pm")",
+        "filedata("$fd") recfm(v,b) lrecl(27994) blksize(0)")
+ end
+ $prm="path('"$dsn"')" $prm
+ Return Xalloc()
+
+0CONCAT:
+ $p=translate(space(arg(1)))
+ $p=translate($p,',',' ')
+ return Bpxwdyn('concat ddlist('$p')')
+
+0Free:
+ arg $p $o .
+ $c=Bpxwdyn('free dd('$p')')
+ if $c=70778880 then $c=0
+ if $c=0 & $p=$lastdd then $lastdd=''
+ Return $c
+
+/* Read dataset to stack (append) by name or libref */
+0READ: Procedure expose ($globalv) $str.
+trace off
+ parse arg $prm
+ if $prm='' then Call Quit 'rc 8 msg READ missing parm'
+ parse value 0 0 0 with $clear $keepit $cond $prefix $build $where $save .
+ Interpret KParse('_AP' $prm,'_AP KEEPIT PREFIX CLEAR BUILD WHERE SAVE COND',,
+  '$',1)
+ if $clear then call 0CLEAR
+ parse value ($build<>'') ($where<>'') ($prefix<>'') ($save<>''),
+   with ?build ?where ?prefix ?save .
+ if ?prefix then do
+   ?build=1
+   $build="$prefix || r"
+   $prefix=Unquote($prefix)
+ end
+ Call SetFileInfo $_ap
+ /* conditional processing begin - check existing dataset */
+ if $ft='D' & pos('NEW',$_ap)=0 & $cond then,
+   if Sysdsn($fn)<>'OK' then return 4
+ /* conditional processing end */
+ if $ft='F' then $alcdd=$fn
+ else do
+   $cc=0ALLOC($fn,'SHR','SUB')
+   if $cc<>0 then return Xmsg('Alloc for read' $prm 'rc' $cc)+999
+ end
+ if ?build+?where+?save=0 then do
+   address tso "execio * diskr" $alcdd "(finis)"
+   $  =queued()
+   $cc=rc
+ end
+ else do
+   if ?save then "newstack"
+   do forever
+     address tso "execio 200 diskr" $alcdd "(stem $r.)"
+     $cc=rc
+     if $r.0=0 | $cc>4 then leave
+     do r#=1 to $r.0
+       call AddRec $r.r#
+     end
+     $cc=0
+   end
+   address tso "execio 0 diskr" $alcdd "(finis)"
+   drop $r.
+   if ?save then do
+     $q=queued()
+     Interpret  "do $=1 to $q;parse pull $str."$save".$;end"
+     $str.$save.0=$q
+     "delstack"
+   end
+ end
+ if $ft='F' | $keepit then return $cc
+ $c=Bpxwdyn('free dd('$alcdd')')
+ if $c=0 & length($alcdd)=8 & left($alcdd,3)='SYS',
+  & isnum(right($alcdd,5)) then $lastdd=$alcdd
+ return $cc
+
+/* Write stack to dataset by name or libref
+  parm1 must be either a DDname, a datasetname, a pathname, the special
+  text 'TEMP', 'INTRDR' or 'SYSOUT(c)'.
+*/
+0WRITE: Procedure expose ($globalv)
+ trace off
+ address tso
+ parse arg $prm
+ if $prm='' then Call Quit 'rc 8 msg WRITE missing parm'
+ arg $uprm
+ parse value copies('0 ',20) with $keepit $append .
+ Interpret KParse('_AP' $prm,'_AP KEEPIT APPEND AUTO','$',1)
+ Call SetFileInfo word($_ap,1)
+ if $ft='F' then $alcdd=$fn
+ else do
+   $_ap=$fn subword($_ap,2)
+   $d='SHR'
+   if pos('.',word($_ap,1))=0 ,
+   |  pos('/',word($_ap,1))>0 then $d='NEW'
+   $cc=0ALLOC($_ap,$d,'SUB')
+   if $cc<>0 then return xmsg('Alloc for write' $prm 'rc' $cc)+999
+   if pos('.',word($_ap,1))=0 ,
+   &  pos('(',word($_ap,1))=0 then $keepit=1 /* temp ds */
+ end
+ /* append to existing */
+ if $append then do /* put current dataset contents at front */
+   "newstack"
+   "execio * diskr" $alcdd "(finis)"
+   "execio" queued() "diskw" $alcdd
+   "delstack"
+ end
+ "execio" queued() "diskw" $alcdd "(finis)"
+ $cc=rc
+ if ?ispf & pos('.',word($_ap,1))>0,
+    & pos('(',word($_ap,1))>0 then Call 0ISPF 'SETMSTAT' $_ap
+ if $ft='F' | $keepit then return $cc
+ $c=Bpxwdyn('free dd('$alcdd')')
+ if $c=0 & length($alcdd)=8 & left($alcdd,3)='SYS' & isnum(right($alcdd,5)),
+   then $lastdd=$alcdd
+ return $cc
+
+0SUBMIT: Return Write('INTRDR')  /* write stack to JES for execution */
+
+0SetMStat: Return RxPiISPF('SETMSTAT' arg(1))
+
+0REXX:                                           /* run REXX pgm            */
+ if arg(1)<>'' then do; Interpret arg(1); $result=result; return 0; end
+ _=''                                            /* in the stack            */
+ do queued()
+   parse pull @
+   _=_||strip(@)';'
+ end
+ Interpret _
+ return 0
+
+0CALL:                                 /* CALL command            */
+ parse arg $callprm
+ Call SetNoPrefix
+ Signal on syntax name CallErr
+ Interpret 'call' $callprm
+ $result=result
+ if datatype(result)='NUM' then $rc=$result
+ Signal off syntax
+ if $haltonrc<>'' then,
+   if $rc>=$haltonrc then call quit 'rc 8 msg Halt on' $cmdverb 'cc' $rc
+ return 0
+CallErr:
+ Signal off syntax
+ c=''
+ if rc=43 then c='(not found)'
+ Call Quit "rc 8 msg Call error" rc "for" $callprm c
+ /*****/
+ $rc=-99
+ $result=''
+ return 0
+0PROGRAM: /* run external program */
+ parse arg $n $p
+ Address AttchMvs translate($n) '$P'
+ $rc=rc
+ $result=rc
+ return 0
+0PAUSE: /* wait nn econds, or for keypress */
+ if arg(1)<>'' then if \IsNum(arg(1)) then,
+   call quit 'rc 8  msg Pause - inalid secs parm'
+ if arg(1)<>'' then do  /* seconds */
+   call syscalls 'ON'   /* Using USS */
+   address syscall 'sleep' arg(1)
+   call syscalls 'OFF'
+   return 0
+ end
+ address tso "newstack"
+ pull _
+ address tso "delstack"
+ return 0
+
+/* TSO syntax: TSO command, add output to the stack  */
+0TSO:
+ Call RvReset
+ $cc=Xtso(arg(1))
+ Call RvSet
+ do n=1 to $.0
+   queue $.n
+ end
+ return $cc
+0TSONS: Return Xtso(arg(1))*0      /* TSO, do not stack the output */
+
+/* SAVE stack to stem - preserves the stack, unless CLEAR parm */
+0SAVE: Procedure expose $str. $stacked ($globalv)
+ trace off
+ parse value '1 0 0' with $id $append $clear $where
+ Interpret KParse('id' arg(1),'id append clear where stacked','$','1')
+ if $append then $p=$str.$id.0
+ else $p=0
+ ?where=($where<>'')
+ do $=1 to $stacked
+   parse pull r
+   if \$clear then queue r
+   if \Where(r) then iterate $
+   $p=$p+1
+   $str.$id.$p=r
+ end
+ $str.$id.0=$p
+ return 0
+
+/* LOAD stem to stack - appends to the stack unless CLEAR parm */
+0LOAD: Procedure expose $str. $stacked ($globalv)
+ trace off
+ parse value 1 0 0 with $id $clear $rotate $prefix $where
+ Interpret KParse('ID' arg(1),'id clear prefix where rotate','$',1)
+ if $clear then Call 0CLEAR        /* replace, not append */
+ if $prefix<>'' then $prefix=Unquote($prefix)
+ ?where=($where<>'')
+ if \$rotate then do  /* serial */
+   do $in=1 to words($id)
+     $i=word($id,$in)
+     if symbol('$str.$i.0')<>'VAR' then,
+       call quit 'rc 8 msg stream' $i 'not defined'
+     do $=1 to $str.$i.0
+       if \?where then queue $prefix||$str.$i.$
+       else if Where($str.$i.$) then queue $prefix||$str.$i.$
+     end
+   end
+   return 0
+ end
+ /* load rotate */
+ $smax=0
+ $idn=words($id)
+ do $i=1 to $idn
+   $n=word($id,$i)
+   $smax=max($smax,$str.$n.0)
+ end
+ do $sn=1 to $smax
+   do $in=1 to $idn
+     $i=word($id,$in)
+     if $str.$i.0>=$sn then,
+       if \?where then queue $prefix||$str.$i.$sn
+       else if Where($str.$i.$sn) then queue $prefix||$str.$i.$sn
+   end
+ end
+ return 0
+
+0CLEAR: trace off ; Return 0DELSTACK()+0NEWSTACK() /* reset stack */
+
+LIST: Return 0LIST(arg(1)) /* LIST the stack */
+0LIST:
+ zz=arg(1)
+ parse value '' with $where $_text
+ Interpret KParse('_text' arg(1),'_text where','$')
+ ?whr=($where<>'')
+ if $_text<>'' then do
+   if left($_text,1)='+' then do
+     say ''
+     $_text=strip(substr($_text,2),'l')
+   end
+   say Unquote($_text)
+ end
+ do $stacked
+   Call PullParse
+   queue r
+   $cc=1
+   if ?whr then Interpret "$cc=("$where")"
+   if $cc then say strip(r,'t')
+ end
+ return 0
+
+0FILTER: /* FILTER  the stack by expr */
+ parse arg $p 1 $p1 $p2,$cnd
+ if translate($p)='NOTNULL' then $p="r<>''"
+ if translate($p1)='MASK' then $p="Mask('"strip(Unquote($p2))"',R)"
+ Interpret "do recnum=1 to $stacked;Call PullParse;",
+   "if "$cnd"("$p") then queue r; end; return 0"
+
+0INCLUDE: /* mask,cond */
+ $r='R'
+ parse arg $text,$cnd
+ if translate($text)='NOTNULL' then Return 0FILTER('NOTNULL')
+ if translate(word($text,1))='CAPS' then,
+   parse value 'translate(r)' translate(subword($text,2)) with $r $text
+ if left($text,1)<>"'" & (pos('*',$text)+pos('%',$text)>0),
+   then $test='Mask($text,'$r')'
+ else do
+   $text=UnQuote($text)
+   $test='(Pos($text,'$r')>0)'
+ end
+ Return 0FILTER($test,$cnd)
+0EXCLUDE: Return 0INCLUDE(arg(1),'\')  /* mask,cond */
+
+0EFFECT: /* make some effect */
+ arg what p1 p2 p3
+ if what='WAVE' then return,
+   0BUILD("copies(' ',i)r;i=i+1;if i>"p1-1" then i=0")
+ if what='ROLL' then do
+   k=1
+   return,
+     0BUILD("copies(' ',i)r;i=i+k;if i>"p1-1" then k=-1;else if i<1 then k=1")
+ end
+ call quit 'rc 8 msg Unknown effect' what
+
+0BUILD: /* BUILD  construct record  */
+ parse value '0 0 0 0' with i n m p .
+ Interpret "do recnum=1 to $stacked;Call PullParse;queue "arg(1)";end"
+ return 0
+
+0XLATE: /* XLATE  - translate records */
+ parse arg $prm 1 $p1 $p2
+ ?uc=(translate($prm)='UPPER')
+ ?lc=(translate($prm)='LOWER')
+ do $stacked
+   parse pull $r
+   if ?uc then queue translate($r)
+   else if ?lc then queue LCase($r)
+   else queue translate($r,$p1,$p2)
+ end
+ return 0
+
+0COMPRESS: /* Compress */
+ do $stacked
+   parse pull $r
+   queue space($r)
+ end
+ return 0
+
+0JUST: /* Justify */
+ parse arg $l $c
+ if $l='' then Call Quit 'msg *Missing length parm rc 8'
+ if $c='' then $c=' ';else $c=Unquote($c)
+ do $stacked
+   parse pull $r
+   queue justify($r,$l,$c)
+ end
+ return 0
+
+0PAD: /* Pad to ensure minimum length  */
+ parse arg $w $n $c .
+ parse value 0 0 with ?left ?right
+ if datatype($w)='NUM' then parse value 'R' $w $n with $w $n $c
+ upper $w
+ $c=left(Unquote($c)' ',1)
+ ?left=(Abbrev('LEFT',$w,1))
+ ?right=(Abbrev('RIGHT',$w,1))
+ if ?left+?right=0 | \isnum($n) then call Quit 'rc 8 msg *Bad parm'
+ if ?left then $s="right(r,"$n",$c)"
+ else          $s= "left(r,"$n",$c)"
+ Interpret "do $stacked; parse pull r;",
+           "if length(r)>="$n" then queue r; else queue" $s "; end"
+ return 0
+
+0SHIFT: /* Shift right or left, padding with char */
+ parse arg $w $n $c .
+ parse value 0 0 with ?left ?right
+ upper $w
+ ?left=(Abbrev('LEFT',$w,1))
+ ?right=(Abbrev('RIGHT',$w,1))
+ if ?left+?right=0 | \isnum($n) then call Quit 'rc 8 msg *Bad parm'
+ if ?left then $s="substr(r,"$n+1")"
+ else          $s="$p||r"
+ $c=left(Unquote($c)' ',1)
+ $p=copies($c,$n)
+ Interpret "do $stacked; parse pull r; queue" $s "; end"
+ return 0
+
+0STRIP:  /* Strip char from front, back or both (default) */
+ trace off
+ parse value 'T' with $w $a $b
+ $c=' '
+ parse arg $p
+ do while $p<>''
+   $p=strip($p)
+   select
+     when wordpos(translate(word($p,1)),'B L T')>0 then,
+       parse value translate(word($p,1)) $p with $w . $p
+     when left($p,2)="+'" then parse var $p ."'"$a"'" $p
+     when left($p,1)="'" then parse var $p =2 $c"'" $p
+     otherwise parse var $p $c
+   end
+ end
+ do $stacked
+   parse pull $r
+   queue $b||strip($r,$w,$c)||$a
+ end
+ return 0
+
+0REPLACE: /* replace text in string */
+trace off
+ /*Call PParse arg(1),2
+ parse var $pr @ $whr
+ if $p#<>2 | (@<>'' & translate(@)<>'WHERE'),
+   then call quit 'rc 8 msg Syntax error in' arg(1)
+ $p1=UnQuote(QStrUndo($p1))
+ $p2=UnQuote(QStrUndo($p2)) */
+ parse value '' with $p. $whr
+ parse arg $p
+ do #=1 to 2
+   $p=strip($p)
+   if left($p,1)="'" then parse var $p . +1 $p.# "'" $p
+   else parse var $p $p.# $p
+ end
+ if $p<>'' then do
+   if translate(word($p,1))='WHERE' then $whr=strip(delword($p,1,1))
+   else say 'bad parm' prm
+ end
+ $l1=length($p.1)
+ $l2=length($p.2)
+ $c="do $stacked;Call PullParse;"
+ if $whr<>'' then $c=$c "if" $whr "then do;"
+ $c=$c "$=1;do forever;$=pos($p.1,r,$);if $=0 then leave;",
+    "r=left(r,$-1) || $p.2 || substr(r,$+"$l1");$=$+"$l2";end;"
+ if $whr<>'' then $c=$c "end;"
+ $c=$c "queue r;end"
+ interpret $c
+ drop $c $p $p. $whr
+ return 0
+
+0CHOP: /* CHOP  leave left n bytes, or before 'text' */
+ parse arg $p
+ ?text=datatype($p)<>'NUM'
+ if ?text then $t=Unquote($p)
+ do $stacked
+   parse pull $r
+   if ?text then $p=pos($t,$r)-1
+   if $p>0 then queue left($r,$p)
+ end
+ return 0
+
+0DUP: /* DUP  repeat stack lines    */
+ $n=word(arg(1) 1,1)
+ do $stacked
+   parse pull r
+   do $n+1
+     queue r
+   end
+ end
+ return 0
+
+0DUPSTACK: /* DUP  repeat stack block    */
+ parse arg $dupn $v
+ $dupn=word($dupn '1',1)
+ parse value '' with $shn $shv
+ $=wordpos('SHIFT',translate($v))
+ if $>0 then $shn=word($v,$+1)
+ Call 0SAVE '0'
+ do $dupn
+   Call 0LOAD "0 prefix '"$shv"'"
+   if $shn='' then iterate
+   $shv=$shv||copies(' ',$shn)
+ end
+ return 0
+
+0NDUP: Procedure expose $stacked ($globalv)  /* Drop duplicate lines       */
+ dc.=0
+ do $stacked
+   parse pull r
+   if dc.r then iterate
+   dc.r=1
+   queue r
+ end
+ return 0
+
+0NDUPLINE: /* drop if previous line is same */
+ $=''
+ do $stacked
+   parse pull r
+   if r<>$ then queue r
+   $=r
+ end
+ return 0
+
+0USORT: /* sort using UNIX System Services  */
+ cc=0STEM('save $sort.')+0CLEAR()
+ Call bpxwunix 'sort' arg(1), '$sort.', '$sort.', 'STDERR.'
+ Return 0STEM('load $sort.')+0REXX('drop $sort.')
+
+/* Reorder LIFO */
+0ORDER: Procedure expose $stacked ($globalv)
+ if translate(arg(1))<>'LIFO' then return 0
+ Call 0SAVE '0'
+ do n=$stacked to 1 by -1
+   queue $str.0.n
+ end
+ Return 0
+
+0LITERAL:
+0TEXT:
+ parse arg $p
+ if   translate(lastword($p))='ATBOT' then queue delword($p,words($p))
+ else if translate(lastword($p))='ATTOP' then push delword($p,words($p))
+ else queue $p
+ return 0
+
+0TERMINAL: /* stack to terminal */
+ do $stacked
+   Call PullParse
+   say strip(r,'t')
+ end
+ return 0
+
+0SAY: say arg(1);return 0
+
+0ASK:  /* text to terminal then get response (say+getcons) */
+ parse arg $p
+ parse value '1=1 $ask' with $until $var $_t
+ Interpret Kparse('_t' arg(1),'_t var until','$')
+ if err<>'' then call Quit 'rc 8 msg' err
+ if translate($until)='NOTNULL' then $until=$var"<>''"
+ "newstack"
+ $_t=Unquote($_t)
+ Interpret "do until" $until";say $_t;parse pull r;zz=value('"$var"',r);end"
+ "delstack"
+ return 0
+
+0GETCONS:
+ "newstack"
+ Interpret "parse pull" word(arg(1) '$getcons',1)
+ "delstack"
+ return 0
+
+0COMBINE: /* Combine records COMB num | * | expr chr ÝNOTSHORT¨ ÝWIDTH wdth¨ */
+ parse arg $prm
+/*say 'combine prm:' $prm */
+ if translate(word($prm,1))='WIDTH' then Return CombWidth()
+ parse value '0 0 0' with $notshort $all $space $_p1 $chr $width $whn $r
+ Interpret KParse('_p1' arg(1),'_p1 chr notshort width all space','$','1')
+ if $all then $_p1=$stacked
+ if $_p1='*' then $_p1=$stacked
+ $num=$_p1
+ $count=$_p1
+ ?num=IsNum($_p1)
+ if ?num then $whn='$NUM=0'
+ else $whn=MakeExpr($_p1)
+ if $chr<>'' then $chr=unquote($chr)
+ if $space then $chr=' '
+/* say 'combine whn:' $whn */
+ do $stacked
+   Call PullParse
+   $r=$r || $chr || r
+   if ?num then $num=$num-1
+   Interpret "$="$whn
+   if $ then do
+     if $chr<>'' then queue substr($r,2)  /* has split char */
+     else queue $r
+     if ?num then $num=$count
+     $r =''
+   end
+ end
+ if \$notshort & $r<>'' then queue $r
+ return 0
+CombWidth:
+ parse value 1 $prm with ?first . $l .
+ do $stacked
+   parse pull r
+   if ?first then $r=strip(r,'t')
+   else $r=$r strip(r,'t')
+   ?first=0
+   if length($r)<=$l then iterate
+   $p=lastpos(' ',$r,$l)
+   queue left($r,$p-1)
+   $r=substr($r,$p+1)
+ end
+ if $r<>'' then queue $r
+ return 0
+
+0SPLIT: Procedure expose ($globalv)    /* Split records into multiple */
+ parse value queued() arg(1) with $qc $p
+ if $p='' then $p=' ' /*Call quit 'rc 8 msg *SPLIT missing parm' */
+ $p=Unquote($p)
+ ?num=datatype($p)='NUM'
+ do $qc
+   parse pull r
+   r=strip(r,'t')
+   if ?num then do while r<>''
+     parse var r f =($p) r
+     queue f
+   end
+   else do
+     do forever
+       p=pos($p,r,2)
+       if p=0 then leave
+       parse var r f =(p) r
+       if f<>'' then queue f
+     end
+     if r<>'' then queue r
+   end
+ end
+ return 0
+
+0COMPARE: /* Compare stack to stream                   */
+ arg $p
+ if $str.$p.0<>$stacked then return Xmsg('Unequal sizes')+8
+ $k=0
+ do $=1 to $stacked
+   parse pull $r
+   if $r<>$str.$p.$ then if \$k then do
+     call Xmsg 'Missmatch at' $
+     $k=1
+   end
+   queue $r
+ end
+ if $k then return 0
+ return Xmsg('Files are the same')
+
+0COUNT: /* Count lines or words, replacing the stack unless 'Term' kw */
+ $c=$stacked
+ arg _
+ parse value 0 0 with ?W ?T
+ do #=1 to words(_)
+   if Abbrev('WORDS',word(_,#),1) then ?W=1
+   else if Abbrev('TERM',word(_,#),1) then ?T=1
+   else return xmsg('COUNT bad parm' word(_,#))+8
+ end
+ if ?W then do
+   $c=0
+   do $stacked
+     parse pull r
+     $c=$c+words(r)
+     if ?T then queue r
+   end
+ end
+ if ?T then if ?w then return xmsg('COUNT words is' $c)
+                  else return xmsg('COUNT lines is' $c)
+ Call 0CLEAR
+ queue $c
+ return 0
+
+0HEAD:
+  do #=1 to $stacked; parse pull r; if #<=arg(1) then queue r; end
+  return 0
+0TAIL:
+  $=$stacked-arg(1)
+  do #=1 to $stacked; parse pull r; if #>$ then queue r; end
+  return 0
+0DROP: Return Block('DROP' arg(1))
+0KEEP: Return Block('KEEP' arg(1))
+
+/* Get dataset information using current stack as input*/
+0DSINFO: Procedure expose ($globalv)
+ arg $prm
+ parse var $prm $f $p ' LIST ' $vl
+ if $vl='' then $vl='SYSVOLUME SYSDSORG SYSRECFM'
+ $prm=space($f $p)
+ $qn=queued()
+ do $qn
+   pull $ds .
+   $cc=Listdsi($ds $p)
+   if $cc<>0 then do
+     queue 'DSINFO' $ds 'rc' $cc sysreason
+     iterate
+   end
+   $rt=$ds
+   do $n=1 to words($vl)
+     $rt=$rt value(word($vl,$n))
+   end
+   queue $rt
+ end
+ return 0
+
+0JOIN: /* Join stream to stack */
+ parse value '1 1 1 1 0' ,
+   with $id $outer $o $inner $i $keypos1 $keylen $keypos2
+ Interpret KParse('id' arg(1),,
+           'outer o inner i keypos1 keypos2 keylen sepc','$',1)
+ if $keypos1='' then call Quit 'rc 8 msg Missing keypos'
+ $keypos2=word($keypos2 1,1)
+ if $keylen ='' then call Quit 'rc 8 msg Missing keylen'
+ $id   =word($id 1,1)
+ $inner=($inner | $i)
+ if \$inner then $outer=($outer | $o)
+ $sepc =Unquote($sepc)
+ do $=1 to $str.$id.0 /* build key table */
+   zz=value('$k.'substr($str.$id.$,$keypos2,$keylen),$)
+ end
+ do $stacked          /* join by key */
+   parse pull $l
+   $r=subword(value('$str.'$id'.'value('$k.'substr($l,$keypos1,$keylen))),2)
+   if $inner & $r='' then iterate
+   queue strip($l) || $sepc || $r
+ end
+ drop $k.
+ return 0
+
+0VTable: return 0Table('V' arg(1))    /* vertical table */
+0TABLE: Procedure expose ($globalv) /* Make horizontal or vertical table */
+ parse value 'NNNNN Y Y' with $bord $top $bot,
+   $width $act $top $bot $cols $coldef $dlm
+ Interpret KParse('act' arg(1),,
+           'act top bot bord cols coldef dlm width','$')
+ upper $act $top $bot $cols $coldef $bord
+ if $bord='ALL' | $bord='' then $bord='+|-|-'
+ if $bord='OUTER' then $bord='B|-NN'
+ $bord=left($bord,5,'N')  /* border defs - corner, outer and inner */
+ if $bord='NNNNN' then parse value 'N N' with $top $bot
+ ?$dlm=($dlm<>'')
+ $act=word($act 'H',1)
+ tr.=''
+ ?zcols=($cols $coldef='')
+ if $cols='' & $coldef<>'' then $cols=words($coldef)
+ parse upper value ' '||$bord with,
+   bp +1 bc +1 bov +1 boh +1 biv +1 bih +1 .     /* bp - inner padding       */
+ l= 'bc bov boh biv bih'
+ do while l<>''
+   parse var l w l
+   if value(w)='N' then zz=value(w,'')
+   if value(w)='B' then zz=value(w,' ')
+ end
+
+ /* make table input data for H and V */
+ if wordpos($act,'H V')>0 then do                /* make data variable       */
+   data=''
+   c=''
+   if \?$dlm then c=' '
+   do queued()
+     parse pull s
+     if ?$dlm then data=data || c || translate(strip(s),'0440'x,' '$dlm)
+     else data=data || c || strip(s)
+   end
+   wnum=words(data)
+   if ?zcols then do                             /* compute #cols            */
+     wlen=0
+     do n=1 to wnum
+       wlen=max(wlen,length(word(data,n)))
+     end
+     if $width='' then $width=$scrwdth
+     $cols=(($width-2)%(wlen+2))
+   end
+ end
+
+ /* build from stack records */
+ if $act ='R' then do
+   if ?zcols then $cols=0
+   dpth=queued()
+   do m=1 to dpth
+     parse pull s
+     if ?$dlm then tr.m=translate(strip(s),'0440'x,' '$dlm)
+     else tr.m=strip(s)
+     if ?zcols then $cols=max($cols,words(tr.m))
+   end
+ end
+ /* build horizontal table */
+ else if $act ='H' then do
+   dpth=0
+   do m=1 to wnum by $cols
+     dpth=dpth+1
+     tr.dpth=subword(data,m,$cols)
+   end
+ end
+ /* build vertical table */
+ else if $act ='V' then do
+   parse value 1 with vn tr.
+   dpth=trunc((wnum/$cols)+0.999999)             /* depth                    */
+   do m=1 to dpth
+     do n=0 to $cols-1
+       tr.vn=tr.vn word(data,m+(n*dpth))
+     end
+     vn=vn+1
+   end
+ end
+ else return ispmsg('Bad table action def' $act)+8
+
+ /* analyze */
+ cw.=0                                           /* column width              */
+ ca.=''                                          /* column adjustment        */
+ do dn=1 to dpth
+   do cn=1 to $cols
+     cw.cn=max(cw.cn,length(word(tr.dn,cn)))
+   end
+ end
+ if $coldef<>'' then do
+   $cols=words($coldef)
+   do n=1 to $cols
+     c=word($coldef,n)
+     if datatype(left(c,1))<>'NUM' then parse var c ca.n +1 c
+     if c<>'' then cw.n=c
+   end
+ end
+
+ /* format */
+ l=cw.1                                          /* compute total            */
+ do n=2 to $cols                                 /* element width            */
+   l=l+cw.n + length(bp || biv)
+ end
+ hodiv=bc  || copies(boh,l + $cols +1) || bc     /* outer top/bottom         */
+ hidiv=bov || copies(bih,l + $cols +1) || bov    /* inner line divider       */
+ if (bc='N' & boh='N') | $top='N' then nop; else queue hodiv
+ do dn=1 to dpth
+   l=bov
+   do cn=1 to $cols
+     if ca.cn='R' then l=l || bp || right(word(tr.dn,cn),cw.cn)  || bp || biv
+     else,
+     if ca.cn='C' then l=l || bp || center(word(tr.dn,cn),cw.cn) || bp || biv
+     else              l=l || bp || left(word(tr.dn,cn),cw.cn)   || bp || biv
+   end
+   if biv<>'' then l=overlay(bov,l,length(l))
+   else l=l || bov
+   if ?$dlm then l=translate(l,' ','04'x)        /* restablish blanks        */
+   queue l
+   if bih<>'' & dn<dpth then queue hidiv
+ end
+ if (bc='N' & boh='N') | $bot='N' then nop; else queue hodiv
+ return 0
+
+GetStack: parse pull _;return _                /* get stack entry */
+PutStack: queue arg(1);return 0                /* add stack entry */
+0NEWSTACK: address TSO "newstack";return 0     /* add stack */
+0DELSTACK: address TSO "delstack";return 0     /* delete stack */
+
+0IF:    /* Control the RXPIPE command flow */
+ $condlvl=$condlvl+1
+ Signal off novalue
+ parse value '' with @if @then
+ Interpret KParse('IF' arg(1),'IF THEN','@')
+ if rc<>0 then call quit 'rc 8 msg' err
+ Interpret "$ifcond=("@if")"
+ $cond.$condlvl=$ifcond
+ if @then='' then return 0
+ if translate(word($pcmd,1))='ELSE' then $pcmd=@then $sepc $pcmd
+ else $pcmd=@then $sepc 'END' $sepc $pcmd
+ return 0
+0ELSE: return 0
+0END: return 0
+
+0STEM: trace off;
+ trace off
+ arg $q $n   /* what name */
+ if $q='SAVE' then Interpret $n"0=queued();", /* copy stack to stem */
+   "do $=1 to" $n"0;parse pull r;queue r;"$n"$=r;end;return 0"
+ if $q='MAKE' then Interpret $n"0=queued();", /* move stack to stem */
+   "do $=1 to" $n"0;parse pull r;"$n"$=r;end;return 0"
+ if $q='LOAD' then Interpret,                 /* copy stem to stack */
+   "do $=1 to" $n"0;queue" $n"$;end;return 0"
+ if $q='PULL' then Interpret,                 /* move stem to stack */
+   "do $=1 to" $n"0;queue" $n"$;end;drop" $n";return 0"
+ Call quit "rc 8 msg 'Bad STEM command'"
+
+0CLIP:
+ arg $q $cid .
+ $dd='RXPIPE'word($cid '1',1)
+ if abbrev('SAVE',$q,1) then do
+   $c=BpxWdyn('info dd('$dd') inrtdsn($dsn)')
+   if $c<>0 then do
+     $c=bpxwdyn('alloc dd('$dd') new delete unit(sysda)',
+        'lrecl(27994) recfm(v,b) blksize(0) tracks space(1,2)')
+     if $c<>0 then Call quit 'rc 8 msg Clipsave alloc' $dd 'rc' $c
+   end
+   "execio" queued() "diskw" $dd "(finis)"
+   if rc<>0 then Call quit 'rc 8 msg Clipsave write' $dd 'rc' rc
+   return 0
+ end
+ if abbrev('LOAD',$q,1) then do
+   "execio * diskr" $dd "(finis)"
+   if rc<>0 then Call quit 'rc 8 msg Clipload read' $dd 'rc' rc
+   return 0
+ end
+ Call quit 'rc 8 msg Clip bad subcommand'
+
+/* Fanout to $str.$id. by filters
+  i.e.  :1 'w2='w2 where pos('.ASMA.',r)>0  */
+0Fanout: Procedure expose $str. $stacked ($globalv)
+ parse arg $fop,$p1
+ spcc='09'x
+ Call MakeSelect TransSpcChr($fop,spcc,':'),spcc
+ sel=''
+ do n=1 to idn
+   zz=value('$str.'id.n'.0',0)
+   sel=sel ';IF 1 &' wh.n 'THEN',
+     'parse value 1 1+$str.'id.n'.0 1+$str.'id.n'.0' fd.n,
+     'with ?catch n $str.'id.n'.0 $str.'id.n'.n'
+ end
+ c='do $stacked;?catch=0;parse pull r 0 w1 w2 w3 w4 w5 w6 w7 w9 w9 w10'
+ if translate($p1)='KEEPIT' then c=c';queue r'
+ Interpret c sel';END'
+ return 0
+
+/* Fanin from streams by filters
+  FANIN  opts :id1 expr1 :id2 expr2 ..
+  i.e.  :1 'w2='w2 where pos('.ASMA.',r)>0  */
+0Fanin: Procedure expose $str. $stacked ($globalv)
+ parse arg $fio ':' +0 $fip
+ ?rotate=wordpos(translate($fio),'ROTATE')>0
+ Call 0Clear
+ spcc='09'x
+ Call MakeSelect TransSpcChr($fip,spcc,':'),spcc
+ /* build the filter and format section */
+ parse value 'SELECT 0' with sel stmmax strlist
+ do n=1 to idn
+   strlist=strlist id.n
+   stmmax=max(stmmax,value('$str.'id.n'.0'))
+   if wh.n='1' then sel=sel ';WHEN $I='id.n 'THEN QUEUE' fd.n
+   else sel=sel ';WHEN $I='id.n '&' wh.n 'THEN QUEUE' fd.n
+ end
+ sel=sel ';OTHERWISE NOP;END;'
+ if ?rotate then do                              /* rotated                  */
+   c="do $m=1 to" stmmax";",                     /* over stems               */
+      "do $s=1 to" words(strlist)";",            /* over streams             */
+       "$i=word(strlist,$s);",
+       "if symbol('$str.$i.$m')='VAR' THEN DO;",
+        "parse var $str.$i.$m r 0 w1 w2 w3 w4 w5 w6 w7 w9 w9 w10;",
+        sel,
+       "end;",
+      "end;",
+     "end"
+ end
+ else do                                         /* sequential               */
+   c="do while strlist<>'';",                    /* over streams             */
+      "parse var strlist $i strlist;",
+      "do stmi=1 to $str.$i.0;",                 /* over stem                */
+       "parse var $str."$i".stmi r 0 w1 w2 w3 w4 w5 w6 w7 w9 w9 w10;",
+       sel"end;",
+      "end"
+ end
+ interpret c
+ return 0
+
+0USS: return Bpxwunix(arg(1),'STACK','STACK','STACK')
+
+BLOCK: Procedure expose ($globalv) /* DROP or KEEP block by text or number */
+ parse value '' with fmn fmt ton tot $count $first $last,
+   $from $frombefore $fromafter $to $tobefore $toafter
+ parse value copies('0 ',20) with pos1 pos2 .
+ parse arg prm
+ parse var prm what prm 0 . p1 p2 p3 p4 p5 p6
+ upper what
+ if wordpos(what,'KEEP DROP')=0 then,
+   call quitclr 'rc 9 msg BLOCK Bad 1st arg' what
+ if datatype(prm)='NUM'   then prm='from 1 to' prm
+ if datatype(p1) ='NUM' & translate(p2)='TO' then prm='from' prm
+ if translate(p1)='LAST'  then prm='from' $stacked-p2+1 'to' $stacked
+ if translate(p1)='FIRST' then prm='from 1 to' p2
+ Interpret Kparse(prm,,
+   'from fromafter frombefore to toafter tobefore count','$')
+ if err<>'' then call quitclr 'rc 8 msg' what err
+ $from=UnQuote($from)
+ $fromafter=UnQuote($fromafter)
+ $frombefore=UnQuote($frombefore)
+ $to=UnQuote($to)
+ $toafter=UnQuote($toafter)
+ $tobefore=UnQuote($tobefore)
+ if checknum('$count')<>'' then call quit what 'rc 8 msg' err
+ if checkmult($from,$fromafter,$frombefore)<>'',
+   then call quitclr 'rc 8 msg' what 'FROM' err
+ if checkmult($to,$toafter,$tobefore)<>'',
+   then call quitclr 'rc 8 msg' what 'TO' err
+ t=$from || $fromafter || $frombefore
+ if t<>'' then do
+   if datatype(t)='NUM' then fmn=t
+   else fmt=t
+ end
+ ?fmn =(fmn<>'')
+ ?fmt =(fmt<>'')
+ t=$to || $toafter || $tobefore
+ if t<>'' then do
+   if datatype(t)='NUM' then ton=t
+   else tot=t
+ end
+ else if $count='' then ton=$stacked
+ if checkmult($count,ton,tot)<>'',
+   then call quitclr 'rc 8 msg' what 'COUNT and TO' err
+ ?ton  =(ton<>'')
+ ?tot  =(tot<>'')
+
+ /* locate start and end */
+ @.0=queued()
+ do n=1 to @.0
+   parse pull @.n
+   select
+     when ?fmn then if n=fmn then parse value 0 n with ?fmn pos1
+     when ?fmt then if pos(fmt,@.n)>0 then parse value 0 n with ?fmt pos1
+     when ?ton then if n=ton then parse value 0 n with ?ton pos2
+     when ?tot then if pos(tot,@.n)>0 then parse value 0 n with ?tot pos2
+     otherwise nop
+   end
+ end
+ if fmt<>'' then if pos1=0 then,
+   call quitclr 'rc 8 msg' what 'from-text not found'
+ if tot<>'' then if pos2=0 then,
+   call quitclr 'rc 8 msg' what 'to-text not found'
+ if $count<>'' & ton||tot='' then pos2=pos1+$count-1
+ if $frombefore<>'' then pos1=pos1-1
+ if $fromafter<>''  then pos1=pos1+1
+ if $tobefore<>''   then pos2=pos2-2
+ if $toafter<>''    then pos2=pos2+1
+
+ /* extract */
+ if what='KEEP' then do n=pos1 to pos2           /* KEEP                     */
+   queue @.n
+ end
+ else do                                         /* DROP                     */
+   do n=1 to pos1-1
+     queue @.n
+   end
+   do n=pos2+1 to @.0
+     queue @.n
+   end
+ end
+ return 0
+
+/* External functions */
+/*JES:   Return RXPIJES(arg(1)) discontinued, see SDSF     JES (SDSF)       */
+0LISTDSI: Return ListDsi(arg(1))
+0MVSVAR:  Return MvsVar(arg(1))
+0STORAGE: Return Storage(arg(1))
+0SYSCPUS: Return SysCpus(arg(1))
+0SYSDSN:  Return SysDsn(arg(1))
+0SYSVAR:  Return SysVar(arg(1))
+0SDSF: Return RXPISDSF(arg(1))                          /* SDSF             */
+0SORT: Return RXPIQSor(arg(1),arg(2))                   /* Quick sort       */
+0VSAM: Return RXPIVSAM(arg(1))                          /* VSAM read/write  */
+0ISPF:
+ Call SetNoPrefix
+ parse value RXPIISPF(arg(1)) with $c $t
+ if $c=0 then return 0
+ Call Quit 'rc 8 msg ISPF failed rc' $c $t
+0EDIT:      Return SetNoPrefix()+RXPIISPF('edit' arg(1) 'macro(RXPIISPF)')
+0DSNLIST:   Return RXPIISPF('DSNLIST' arg(1))
+0MBRLIST:   Return RXPIMBRL(arg(1))
+0SKELeton:  Return RXPIISPF('SKEL' arg(1))
+0PDSMBRL:   Return RXPIPDSM(arg(1))                     /* by PDSMAIN       */
+0CATSEARCH: Return RXPICATS(arg(1))                     /* Catalog search   */
+0StemView:  Call STEMEDIT 'VIEW',,,,'Stack'
+
+/*=============== Inlude former external command members ===================*/

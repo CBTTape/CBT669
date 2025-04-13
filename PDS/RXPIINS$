@@ -1,0 +1,28 @@
+//RXPIINS$ JOB (1),'RXPIINS$',CLASS=A,COND=(0,LT),REGION=64M
+//*
+//* Copy driver member to target libs.
+//* You must change the datasetnames before running the job.
+//* Change the rxpipelib value in the RXPIPE target member.
+//*
+//CP       EXEC PGM=IEBCOPY
+//SYSPRINT DD SYSOUT=*
+//DISTLIB  DD DISP=SHR,DSN=CBT669.PP.RXPIPE.LIB <<-- Distlib
+//SYSEXEC  DD DISP=SHR,DSN=locl.exec          <<-- Your target
+//PIPELIB  DD DISP=SHR,DSN=pipe.exec          <<-- Your target
+//DOCLIB   DD DISP=SHR,DSN=locl.doclib        <<-- Your target
+ C I=((DISTLIB,R)),O=SYSEXEC      Driver
+  S M=((RXPIPEX,RXPIPE))          Copy with rename
+ C I=((DISTLIB,R)),O=PIPELIB      PIPE subs
+  S M=RXPICATS
+  S M=RXPIDSOR
+  S M=RXPIHSOR
+  S M=RXPIKPAR
+  S M=RXPIMBRL
+  S M=RXPIPDSM
+  S M=RXPIPE
+  S M=RXPISDSF
+  S M=RXPIVSAM
+ C I=((DISTLIB,R)),O=DOCLIB       Doc
+  S M=RXPI@INT
+  S M=RXPI@MAN
+  S M=RXPI@USG

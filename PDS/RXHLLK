@@ -1,0 +1,907 @@
+//RXHLLK   JOB (1),'DVL-RXHL-MODULE',
+//  CLASS=A,COND=(0,LT),REGION=0M
+//*
+//* REXX - hi-lvl program interface - install module
+//*
+//  SET DP=WJENSEN     CBT
+//  SET DP=Z           Package
+//  SET DP=DVL         DEVELOPMENT
+//*
+// SET    PPLIB=&DP..PP.RXHLLK.LIB
+// SET    PPMOD=&DP..PP.RXHLLK.MOD
+//*
+//MOD       EXEC ASMACL, XL,MACLIST=RXHLLK,
+//          PARM.C='TERM,RENT',PARM.L='LIST,XREF,RENT'
+//C.SYSLIB  DD DISP=SHR,DSN=SYS1.MACLIB
+//          DD DISP=SHR,DSN=SYS1.MODGEN
+//          DD DISP=SHR,DSN=&PPLIB
+//          DD DISP=SHR,DSN=CEE.SCEEMAC
+//C.SYSTERM DD SYSOUT=*
+//C.SYSIN   DD *
+*-
+* REXX highlevel program interface to REXX services
+*
+* Current build: 003.02 at 2024-04-29
+*
+* General information
+*  Assembler sub-routine to provide access to REXX features like VGET
+*  and stack access for high-level programs.
+*  The module is reentrant.
+*
+*  Notes
+*   -  The area-len will be updated by the interface for the VGET, NEXT
+*      and PULL commands,
+*   -  The name-addr and len describes the name receiver field for the
+*      NEXT command.
+*   -  The RXHLDOC member describes the available services and the
+*      syntax for calling them.
+*
+* Return codes
+*    0  ok
+*    1  Data retrieved, but truncated.
+*    2  Variable not found or end of NEXT or stack is empty.
+*    3  Bad command
+*    4  No REXX environment
+*    5  Something bad happened, check messages. The subroutine
+*       uses TSO PUTLINE, so mesages can be OUTTRAPed.
+*
+* Global register usage
+*  R12  Main base
+*  R11  Subroutine base
+*  r10  Global work area
+*  r9   Retained control blocks, primarily the REXX interface info.
+*  r8   Points to the callers parameter list.
+*
+* The program must be 'called', i.e. Call MYCOBPGM. Neither as
+* function i.e. cc=MYCOBPGM() nor as TSO command i.e. Address TSO
+* "MYCOBPGM" will work.
+*
+* History
+*  2024-04-28  New command CALL - call REXX
+*  2024-04-29  CALL command, add retval feature.
+*
+* Author
+*  Willy Jensen
+*   mail  willy@harders-jensen.com
+*   web   http://harders-jensen.com     (newest version here)
+*
+* Disclaimer
+*
+*  The product is totally freeware and can be distributed and modified
+*  as you like, though the author would like to know of enhancements
+*  made, so that they might be incooporated into the base product.
+*
+*  The author accepts no responsibility for any damage caused by the
+*  product not behaving as expected or as documented. It is after all
+*  free.
+*
+*  Questions and comments should be sent to the email address,
+*  enhancement requests are especially welcome.
+*
+*  If you experience problems then check the website for an updated
+*  version.
+*-
+*Process compat(macrocase)
+**asma syslib *
+**asma opt term
+&ver     setc  '03'
+&me      setc  'RXHLLK&VER'
+&main    setc  '&me'
+* setting &nxtf and &call to 0 will generate a slightly smaller
+* module, saving 1.5k or so (6.5K instead of 8K).
+&nxtf    setb  0                       do not generate NEXTF routine
+&nxtf    setb  1                       generate NEXTF routine
+*                                      module size dif is 912 bytes
+&call    setb  0                       do not generate CALL routine
+&call    setb  1                       generate CALL routine
+         gblc  &$condsect
+&$condsect setc 'h'                    hide
+&$condsect setc ''                     show (default)
+* setting $condsect to 'h' will shave 1.5K or more off the module
+* size, but it will also disable the trace feature.
+rc_ok       equ   0
+rc_trunc    equ   1
+rc_eod      equ   2
+rc_notfound equ   2
+rc_badcmd   equ   3
+rc_norexx   equ   4
+rc_error    equ   5
+
+         print off
+         Copy  WSAMMacs
+         Copy  REXXMacs
+         Copy  SYSMACS
+         Copy  RXHLMACS
+         print on
+*-
+* Entry point RXHLLK for most programs (default)
+*-
+         ENTRY RXHLLK
+         Using RXHLLK,15
+RXHLLK   l     0,ep1id
+         l     15,ep1ma
+         br    15
+         drop  15
+
+*-
+* Entry point RXHLLNKC for C programs
+*-
+         ENTRY RXHLLKC
+         Using RXHLLKC,15
+RXHLLKC  l     0,ep2id
+         l     15,ep1ma
+         br    15
+         drop  15
+*
+ep1ma    dc    v(&main)
+ep1id    dc    cl4'STD '
+ep2id    dc    cl4'CPL '
+*
+ndp_blk    dsect                        name and data block
+ndp_cmda   ds   a                       address of command
+ndp_namea  ds   a                       address of data
+ndp_namela ds   a                       address of length field
+ndp_texta  ds   a                       address of text field
+ndp_textla ds   a                       address of text length field
+ndp_maska  ds   a                       address of mask field
+ndp_maskla ds   a                       address of mask length field
+*
+dop_blk    dsect                        data only block
+dop_cmda   ds   a                       address of command
+dop_texta  ds   a                       address of text field
+dop_textla ds   a                       address of text length field
+*
+call_blk    dsect                        data only block
+call_cmda   ds  a                       address of command
+call_namea  ds  a                       address of exec name (8 bytes)
+call_parma  ds  a                       address of parm field
+call_parmla ds  a                       address of parm length field
+call_respa  ds  a                       address of response field
+call_respla ds  a                       address of resp length field
+*-
+         macro
+         LogMsg &t,&l
+         aif   (k'&t gt 0).byt
+         aif   (k'&l gt 0).byl
+         mnote 8,'***required parm missing'
+         mexit
+.byt     anop
+&n       seta  (k'&t)-2
+         la    r0,&n
+         mvc   msgr(&n),=c&t
+         ago   .call
+.byl     anop
+         setreg r0,&l
+.call    #subr call,RXHLLogr
+         mend
+*-
+         macro
+         setrc &v
+         mvi   rc+3,&v
+         mend
+*-
+         macro
+         showrc
+         #subr call,RXHLShRc
+         mend
+
+*-
+* Main prolog
+*-
+         #subr set,entry=csect,saend=saheapn,base=r11
+         using rxhlblk,r9
+&me      #module base=(r12),sa=sa1,work=($wrkl,$wrk,r10)
+         mvc   mod,=cl4'MAIN'
+*-
+* Init
+*-
+         mvi   trace,c'N'
+         mvc   rc,zero
+         mvc   cmd,blank
+         mvc   msgr,blank
+         ereg  0,1
+         stcm  r0,15,calltype           STD or CPL
+         lr    r8,r1
+         using dop_blk,r8
+         l     r1,dop_cmda             -> command
+         if    (cli,0(r1),eq,c'?')     set 'trace'
+           mvi   trace,c'Y'
+           mvc   cmd(7),1(r1)
+         else
+           mvc   cmd,0(r1)
+         endif
+         mvc   ntname(8),=cl8'&me'     n/t name is me
+         mvc   ntname+8(8),=cl8'00000000'  default 2nd part
+*        if    (lt,r1,dop_ida,nz)
+*          if    (cli,0(r1),ne,c' '),and,(cli,0(r1),ne,0)
+*            mvc   ntname+8(8),0(r1)   get 2nd part
+*          endif
+*        endif
+         drop  r8
+*
+         trcblk
+         strmake msgr,'Test n/t ',ntname,lr=r2
+         LogMsg ,(r2)
+         trcblke
+         NTServx rt,name=ntname,pl=SA
+
+* if not found then create data block and n/t entry
+         if    (nz)
+           trcblk
+           LogMsg 'Set up the n/t'
+           trcblke
+           getmain R,lv=rxhlblkl
+           st    r1,nttoken
+           NTServx cr,n=ntname,t=NtToken,pl=ntpl,rc=ntrc
+           if    (nz)
+             mvi   trace,c'N'
+             trcblk
+             Strmake msgr,'***N/T create error ',(ntrc,4,c2x),lr=r2
+             LogMsg ,(r2)
+             trcblke
+             #module exit,rc=rc_error
+           endif
+           l     r9,nttoken            -> data block
+           trcblk
+           LogMsg 'Set up the n/t done'
+           trcblke
+*          Init rexx
+           RxInit link,norexx=norexx
+         endif
+         l     r9,nttoken              -> data block
+         trcblk
+         LogMsg 'Got REXX env'
+         trcblke
+*-
+* verify command, call processor
+*-
+         trcblk
+         strmake msgr,'Starting cmd ',cmd,                             c
+               ' for calltype ',calltype,lr=r2
+         LogMsg ,(r2)
+         trcblke
+*
+         datablk
+cmdvect  ds    0a
+         dc    cl8'VGET',v(rxhlvget)
+cmdvel   equ   *-cmdvect
+         dc    cl8'VPUT',v(rxhlvput)
+         dc    cl8'VSTAT',v(rxhlvsta)
+         dc    cl8'NEXT',v(rxhlnext)
+ aif (&nxtf eq 0).cvnxtfn
+         dc    cl8'NEXTF',v(rxhlnxtf)
+.cvnxtfn anop
+         dc    cl8'RESET',v(rxhlres)
+         dc    cl8'QUEUED',v(rxhlqued)
+         dc    cl8'QUEUE',v(rxhlque)
+         dc    cl8'PULL',v(rxhlpull)
+         dc    cl8'REPULL',v(rxhlpuld)
+         dc    cl8'PUSH',v(rxhlpush)
+ aif (&call eq 0).cvcalln
+         dc    cl8'CALL',v(rxhlcall)
+.cvcalln anop
+         dc    cl8'MSG',v(rxhlmsg)
+         dc    cl8'DISPLAY',v(rxhlmsg)
+cmdvectn equ   (*-cmdvect)/12
+         datablke
+         oc    cmd,blank               up-case
+         la    r14,cmdvect
+         la    r15,cmdvectn
+         do    over(r15)
+           if    (cmd,eq,0(r14)),then=leave
+           la    r14,cmdvel(,r14)
+         enddo
+         if    (ltr,r15,r15,nz)
+           l     r14,8(,r14)           -> module
+           basr  r14,r14               call
+         else
+           trcblk
+           LogMsg 'Bad command ***'
+           trcblke
+           #module exit,rc=rc_badcmd
+         endif
+*-
+* End
+*-
+         trcblk
+         LogMsg 'Back..'
+         trcblke
+         #module exit,rc=f.rc
+
+*-
+* REXX not found, bad
+*-
+NoRexx   ds    0h
+         mvi   trace,c'N'             force display
+         trcblk
+         LogMsg 'No REXX env ***'
+         trcblke
+         #module exit,rc=rc_norexx
+
+*-
+* Global fixed data
+*-
+zero     dc    a(0)
+blank    dc    cl140' '
+         ltorg
+
+*-
+* Global dynamic area
+*-
+$wrk     dsect
+trace    ds    c
+calltype ds    cl4                     S: standard, C: C strings
+rc       ds    a
+cmd      ds    cl8
+mod      ds    cl4
+fw       ds    f
+dw       ds    d
+count    ds    a
+prmnamel ds    a
+prmtextl ds    a
+lclpl    ds    10a
+         ds    0d
+msgrpfx  ds    cl14
+msgr     ds    cl200
+vnamel   ds    a
+vname    ds    cl200
+* n/t data aras
+         ds    0d
+ntname   ds    cl16
+nttoken  ds    cl16
+ntrc     ds    a
+ntpl     NtServx pl
+* data blocks for services
+         RXEXEC ds,argn=2,mode=2
+* save areas
+sa1      ds    (8*18)f
+saheapn  ds    0a
+wrk256   ds    xl256
+$wrkl    equ   *-$wrk
+
+*-
+* Logger message
+*-
+RXHLLogr #subr
+         trcblk
+         mvc   msgrpfx(l'msgrpfx),blank
+         mvc   msgrpfx(8),=cl8'&me'
+         mvc   msgrpfx+9(4),mod
+         lr    r2,r0                  length
+         la    r2,l'msgrpfx(,r2)
+         tsoputln msgrpfx,(r2)
+         trcblke
+         clear msgr
+         #subr exit
+         #subr drop
+*-
+* Get variable - parms: cmd,nameval,namelen,areaval,arealen
+*-
+RXHLVGet #subr ,  xepilog=RXHLsepl
+         mvc   mod,=cl4'VGET'
+         using ndp_blk,r8
+* copy and up-case name
+         lm    r2,r3,ndp_namea         name address + address of len
+         l     r3,0(,r3)               name length
+         lr    r4,r3
+         bctr  r3,0
+         j     *+10
+         mvc   vname(*-*),0(r2)
+         ex    r3,*-6
+         clear wrk256,l=l'vname
+         oc    vname,wrk256            simple uppercase
+* log before
+         trcblk
+         la    r14,vname
+         l     r15,ndp_namela
+         stm   r14,r15,lclpl
+         #subr call,RXHLSHN            log name
+         trcblke
+*
+         RxVget name=(vname,(r4)),                                     c
+               data=(f.ndp_texta,ff.ndp_textla)
+         if    (ltr,r5,r15,nz)
+           if    (cfi,r15,eq,2)
+             la    r15,rc_trunc        set 'truncated'
+           else
+             la    r15,rc_notfound     set 'not found'
+           endif
+         endif
+         st    r15,rc
+* set data size in callers cb
+         l     r5,zrx_getdl            data size
+         lr    r3,r5
+         l     r1,ndp_textla           -> data length field
+         st    r5,0(,r1)
+         if    (cli,calltype,eq,c'C')  C, null-terminated string
+           l     r4,ndp_texta          -> data
+           la    r1,0(r3,r4)           -> end of data
+           mvi   0(r1),0               set eod
+         endif
+         trcblk
+         ShowRc
+         mvc   lclpl(2*4),ndp_texta
+         #subr call,RXHLSHD            log data
+         trcblke
+         #subr exit
+         #subr drop
+*-
+* Put variable - parms: cmd,nameval,namelen,areaval,arealen
+*-
+RXHLVPut #subr
+         mvc   mod,=cl4'VPUT'
+         using ndp_blk,r8
+* copy and up-case name
+         lm    r2,r3,ndp_namea         name address + address of len
+         l     r3,0(,r3)               name length
+         lr    r4,r3
+         bctr  r3,0
+         j     *+10
+         mvc   vname(*-*),0(r2)
+         ex    r3,*-6
+         clear wrk256,l=l'vname
+         oc    vname,wrk256            simple uppercase
+* log before
+         trcblk
+         la    r14,vname
+         l     r15,ndp_namela
+         stm   r14,r15,lclpl
+         mvc   lclpl+8(8),ndp_texta
+         #subr call,RXHLSHND           log name+data
+         trcblke
+* do VPUT
+         RxVput name=(vname,(r4)),                                     c
+               data=(f.ndp_texta,ff.ndp_textla)
+         if    (ltr,r5,r15,nz),then=(la,r15,rc_error)
+         st    r15,rc
+* log after
+         trcblk
+         ShowRc
+         trcblke
+         #subr exit
+         #subr drop
+
+*-
+* Get next variable - parms: cmd,nameval,namelen,areaval,arealen
+*   nameval+length is the area for receiving the name.
+*  RXVNEXT return code in r15:
+*    0 : name and data retrieved
+*    1 : end of list
+*    2 : name or data was truncated.
+*-
+RXHLNext #subr
+         mvc   mod,=cl4'NEXT'
+         using ndp_blk,r8
+         RxVNext name=(f.ndp_namea,ff.ndp_namela),                     c
+               data=(f.ndp_texta,ff.ndp_textla)
+         lr    r7,r15
+         st    r15,rc
+*        trcblk
+*        strmake msgr,'RXVNEXT rc ',(r15,,cvdr,6),lr=r2
+*        LogMsg ,(r2)
+*        trcblke
+         l     r2,ndp_namela
+         mvc   0(4,r2),zrx_namel       copy name length
+         l     r2,ndp_textla
+         mvc   0(4,r2),zrx_getdl       copy data length
+         if    (cli,calltype,eq,c'C')  C, null-terminated strings
+           l     r2,ndp_namea          -> name field
+           a     r2,zrx_namel          add name length
+           mvi   0(r2),0               set eod
+           l     r2,ndp_texta          -> data field
+           a     r2,zrx_getdl          add data length
+           mvi   0(r2),0               set eod
+         endif
+*
+         trcblk
+         if    (cfi,r7,eq,0),or,(cfi,r7,eq,2)
+           la    r14,ndp_namea
+           mvc   lclpl(4*4),0(r14)
+           #subr call,RXHLSHND           log name+data
+         endif
+         trcblke
+*
+         sr    r15,r15
+         if    (cfi,r7,eq,1)
+           l     r2,ndp_namela
+           xc    0(4,r2),0(r2)         set namelen=0
+           la    r15,rc_eod            set 'done'
+         endif
+         if    (cfi,r7,eq,2)
+           la    r15,rc_trunc          set 'truncated'
+           l     r2,ndp_textla
+           mvc   0(4,r2),zrx_datal     update with required size
+         endif
+         if    (cfi,r7,gt,2),then=(la,r15,rc_error) set 'error'
+         st    r15,rc
+*        trcblk
+*        strmake msgr,'rc ',(r15,,cvdr,6),lr=r2
+*        LogMsg ,(r2)
+*        trcblke
+         #subr exit
+         #subr drop
+
+         aif   (&nxtf eq 0).nxtf2n
+*-
+* Get next variable - filter name by mask
+*-
+RXHLNxtF #subr
+         mvc   mod,=cl4'NXTF'
+         using ndp_blk,r8
+         l     r1,ndp_namela           save
+         mvc   prmnamel,0(r1)           name length
+         l     r1,ndp_textla           save
+         mvc   prmtextl,0(r1)           data length
+* copy and up-case name
+         lm    r2,r3,ndp_maska         name address + address of len
+         l     r3,0(,r3)               name length
+         lr    r7,r3
+         bctr  r3,0
+         j     *+10
+         mvc   vname(*-*),0(r2)
+         ex    r3,*-6
+         clear wrk256,l=l'vname
+         oc    vname,wrk256            simple uppercase
+         la    r6,vname
+* go
+         Do    Forever
+           l     r1,ndp_namela         (re)store
+           mvc   0(4,r1),prmnamel        name length
+           l     r1,ndp_textla         (re)store
+           mvc   0(4,r1),prmtextl        data length
+           #subr call,RXHLNEXT
+           mvc   mod,=cl4'NXTF'
+* rc 1: end of list, 2: truncation
+           l     r5,rc
+           if    (cfi,r5,ge,rc_eod),then=leave
+* now do mask test
+           STRPATRN data=(f.zrx_namea,f.zrx_namel),mask=((r6),(r7))
+           lr    r5,r15
+           if    (ltr,r5,r5,z),then=leave  return data
+         enddo
+         #subr exit
+         #subr drop
+.nxtf2n  anop
+*-
+* Go through all variables, record the widest name- and data text,
+* and the count.
+*-
+RXHLVSTA #subr
+         mvc   mod,=cl4'VSTA'
+         sr    r5,r5
+         sr    r6,r6
+         sr    r7,r7
+         do    forever
+           RxVNext name=(0,0),data=(0,0)
+           lr    r3,r15
+           if    (cfi,r3,eq,1),or,(cfi,r3,gt,2),then=leave
+           la    r5,1(,r5)
+           if    (c,r6,lt,zrx_ShVbVnl) test name length
+             l     r6,zrx_ShVbVnl
+           endif
+           if    (c,r7,lt,zrx_ShVbVbl) test data length
+             l     r7,zrx_ShVbVbl
+           endif
+         enddo
+         trcblk
+         strmake msgr,'count ',(r5,,cvdr,6),                           c
+               ' namemaxw ',(r6,,cvdr,6),                              c
+               ' datamaxw ',(r7,,cvdr,6),lr=r2
+         LogMsg  ,(r2)
+         trcblke
+         lm    r2,r4,4(r8)
+         st    r5,0(,r2)
+         st    r6,0(,r3)
+         st    r7,0(,r4)
+         #subr exit
+         #subr drop
+*-
+* Return number of entries in the stack - parms: cmd,areaval
+*  area is a binary fullword
+*-
+RXHLQued #subr
+         mvc   mod,=cl4'QUED'
+         using dop_blk,r8
+         RxStack queued
+         if    (ltr,r5,r15,nz),then=(la,r15,rc_error)
+         st    r15,rc
+         lr    r3,r1                   queued #
+         trcblk
+         ShowRc
+         strmake msgr,'queued ',(r3,,cvdr,6),lr=r2
+         LogMsg  ,(r2)
+         trcblke
+         l     r14,dop_texta           -> receiver area
+         st    r3,0(r14)
+         #subr exit
+         #subr drop
+*-
+* Get stack entry - parms: cmd,areaval,arealen
+* Note that r0 contains the rc from strcopy:
+*   1   data truncated, field zrx_datal contains the original width.
+*-
+RXHLPull #subr
+         mvc   mod,=cl4'PULL'
+         using dop_blk,r8
+         RxStack queued                check for stack entries
+         if    (ltr,r1,r1,z)
+           trcblk
+           LogMsg 'Stack is empty'
+           trcblke
+           setrc rc_eod
+           #subr exit
+         endif
+
+         l     r6,dop_textla           -> data length field
+         l     r7,0(r6)                get buffer length
+
+* get data address and length
+*        RxStack pull,data=(f.dop_texta,ff.dop_textla),lr=r3
+         RxStack pull
+         if    (ltr,r5,r15,nz)
+           setrc rc_error
+           trcblk
+           Showrc
+           trcblke
+           #subr exit
+         endif
+* data
+         mvc   rxhlpullda,zrx_dataa    save for re-pull
+         mvc   rxhlpulldl,zrx_datal    save for re-pull
+         #subr Call,RXHLPULD           Return data
+         #subr Exit
+         #subr drop
+
+*-
+* Return data from latest PULL, i,e. after a truncation return.
+*-
+RXHLPULD #subr
+         mvc   mod,=cl4'PULD'
+         using dop_blk,r8
+         l     r5,dop_texta            -> data text field
+         l     r6,dop_textla           -> data length field
+         l     r7,0(r6)                get buffer length
+         STRCOPY from=(f.rxhlpullda,f.rxhlpulldl),                     c
+               to=(f.dop_texta,ff.dop_textla),                         c
+               testtrunc=y,cm=l,lr=r3
+*        rc in R15: 0=all ok, 1=truncation
+         if    (cfi,r15,eq,1)          1 = truncation
+           mvc   0(4,r6),rxhlpulldl    update with required size
+           setrc rc_trunc
+           if    (cli,calltype,eq,c'C') C, null-terminated strings
+             l     r1,dop_texta        -> data field
+             ar    r1,r7               plus buffer length
+             bctr  r1,0                -> last byte of buffer
+             mvi   0(r1),0             set eod
+           endif
+         else
+           st    r3,0(,r6)             save length of retrieved
+           if    (cli,calltype,eq,c'C') C, null-terminated strings
+             l     r1,dop_texta        -> data field
+             ar    r1,r3               plus data length
+             mvi   0(r1),0             set eod
+           endif
+         endif
+         trcblk
+         Showrc
+         la    r14,dop_texta
+         mvc   lclpl(2*4),0(r14)
+         #subr call,RXHLSHD            log data
+         trcblke
+         #subr exit
+         #subr drop
+*-
+* Add stack data at top - parms: cmd,areaval,arealen
+*-
+RXHLQue  #subr
+         mvc   mod,=cl4'QUE '
+         using dop_blk,r8
+         RxStack queue,data=(f.dop_texta,ff.dop_textla)
+         if    (ltr,r15,r15,nz),then=(la,r15,rc_error)
+         st    r15,rc
+         trcblk
+         ShowRc
+         trcblke
+         #subr exit
+         #subr drop
+*-
+* Add stack data at bottom - parms: cmd,areaval,arealen
+*-
+RXHLPush #subr
+         mvc   mod,=cl4'PUSH'
+         using dop_blk,r8
+         RxStack push,data=(f.dop_texta,ff.dop_textla)
+         if    (ltr,r15,r15,nz),then=(la,r15,rc_error)
+         st    r15,rc
+         trcblk
+         ShowRc
+         trcblke
+         #subr exit
+         #subr drop
+*-
+* Reset REXX retained info
+*-
+RXHLRes  #subr
+         mvc   mod,=cl4'RES '
+         RxVGet reset
+         if    (ltr,r15,r15,nz),then=(la,r15,rc_error)
+         st    r15,rc
+         trcblk
+         ShowRc Reset
+         trcblke
+         #subr exit
+         #subr drop
+*-
+* terminate acquired areas
+*-
+RXHLTerm #subr
+         mvc   mod,=cl4'TERM'
+         laey  r2,rxhlblkl
+         freemain R,lv=(r2),a=(r9)
+* delete n/t
+         NTServx dl,name=ntname,pl=ntpl,rc=ntrc
+         trcblk
+         LogMsg 'Termination done'
+         trcblke
+         #subr exit
+         #subr drop
+*-
+* issue message
+*-
+RXHLMsg  #subr
+         using dop_blk,r8
+         lm    r2,r3,dop_texta         data-addr, data-length
+         TsoPutln (r2),f.0(r3)
+         #subr exit
+         #subr drop
+
+ aif (&call eq 0).mkcalln
+*-
+* Call a REXX pgm
+* The return code is set to either 0 or rc_error, For IRXEXEC return
+* codes, see the 'TSO/E REXX Reference' manual at the end of the
+* 'IRXJCL and IRXEXEC' section.
+*-
+RXHLCall #subr
+         mvc   mod,=cl4'CALL'
+         using call_blk,r8
+         lm    r3,r5,call_namea        -> name, text, length
+         l     r5,0(,r5)               load length
+         stm   r4,r5,zrx_ex_argb
+         mvc   zrx_ex_argb+8(8),=X'FFFFFFFFFFFFFFFF' terminator
+*
+         trcblk
+         strmake msgr,'call ',((r3),8),' parm ',((r4),(r5)),lr=r2
+         Logmsg ,(r2)
+         trcblke
+* execute and log result
+         RxExec name=(r3)
+         lr    r5,r15
+         st    r5,fw
+         STRC2D FROM=(fw,4),TO=(dw,8)
+         la    r6,zrx_ex_evalb+16      retval addr
+         l     r7,zrx_ex_evalb+8       retval size
+*
+         trcblk
+         strmake msgr,'Call rc ',dw,                                   c
+               ' retval=',(zrx_ex_evalb+16,(r7)),lr=r2
+         Logmsg ,(r2)
+         trcblke
+*
+         if    (ltr,r5,r5,nz)          if rc not ok
+           setrc  rc_error
+           la    r6,dw                 set rc as retval
+           la    r7,l'dw
+         endif
+* any retval?
+         lm    r4,r5,call_respa        response addr, addr of length
+         l     r5,0(,r5)               load length
+         if    (ltr,r7,r7,nz),and,(ltr,r5,r5,nz)
+           STRCOPY from=((r6),(r7)),to=((r4),(r5)),cm=l,lr=r2
+           l     r1,call_respla
+           st    r2,0(r1)
+           if    (cli,calltype,eq,c'C') C, null-terminated strings
+             l     r1,call_respa       -> data field
+             ar    r1,r2               plus data length
+             mvi   0(r1),0             set eod
+           endif
+         endif                         set length
+* final exit from sub
+         #subr exit
+         #subr drop
+.mkcalln anop
+
+*-
+* Subroutine - show rc
+*-
+RXHLShRc #subr
+         trcblk
+         strmake msgr,'rc ',(rc,4,c2d,6),lr=r2
+         LogMsg ,(r2)
+         trcblke
+         #subr exit
+         #subr drop
+
+*-
+* Subroutine - show name
+* parameter list:
+*   address of name
+*   address of size (max 40 chars will be shown)
+*-
+RXHLSHN  #subr
+         trcblk
+         lm    r2,r3,lclpl
+         l     r3,0(r3)
+         lr    r5,r3
+         if    (cfi,r5,gt,40),then=(la,r5,40)
+         strmake msgr,                                                 c
+               'name=(',(r5,,cvdr,4),') ',((r2),(r5)),lr=r2
+         LogMsg ,(r2)
+         trcblke
+         #subr exit
+         #subr drop
+*-
+* Subroutine - show data
+* parameter list:
+*   address of text
+*   address of size (max 60 chars will be shown)
+*-
+RXHLSHD  #subr
+         trcblk
+         lm    r2,r3,lclpl
+         l     r3,0(r3)
+         lr    r5,r3
+         if    (cfi,r5,gt,60),then=(la,r5,60)
+         strmake msgr,                                                 c
+               'data=(',(r3,,cvdr,4),') ',((r2),(r5)),lr=r2
+         LogMsg ,(r2)
+         trcblke
+         #subr exit
+         #subr drop
+*-
+* Subroutine - show name+data
+* parameter list:
+*   address of name
+*   address of size (max 40 chars will be shown)
+*   address of text
+*   address of size (max 60 chars will be shown)
+*-
+RXHLSHND #subr
+         trcblk
+         lm    r2,r5,lclpl
+         l     r3,0(r3)
+         l     r5,0(r5)
+         lr    r6,r3               name size
+         if    (cfi,r6,gt,40),then=(la,r6,40)
+         lr    r7,r5               data size
+         if    (cfi,r7,gt,60),then=(la,r7,60)
+         strmake msgr,                                                 c
+               'name=(',(r3,,cvdr,4),') ',((r2),(r6)),                 c
+               ' data=(',(r5,,cvdr,4),') ',((r4),(r7)),lr=r2
+         LogMsg ,(r2)
+         trcblke
+         #subr exit
+         #subr drop
+*-
+* REXXMACS dynamic area (n/t based)
+*-
+rxhlblk  dsect
+         RexxMacs ds
+         ds    0d
+rxhlpullda ds  a                       address of latest stack pull
+rxhlpulldl ds  a                       length of latest stack pull
+rxhlblkw ds    xl2048
+rxhlblkl equ   *-rxhlblk
+*
+         print off
+         RexxMacs dsect,print=gen
+         IKJTCB
+*
+         END
+//L.SYSLMOD DD DISP=SHR,DSN=&PPMOD
+//L.SYSIN  DD *
+  ENTRY RXHLLK
+  ENTRY RXHLLKC
+  ALIAS RXHLLKC
+  NAME  RXHLLK(R)
+//*

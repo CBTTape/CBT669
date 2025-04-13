@@ -1,0 +1,174 @@
+/*                                                                 rexx
+ Test (IVP) the REXXVARS program
+*/
+ say 'Version:' RexxVars('VERSION')
+
+ /* Do standard tests   */
+ signal on error name err1
+ signal on syntax name err1
+ address ispexec "control errors return"
+ Call TestSortDFSP
+ Call Quit 'All ok'
+
+Err1:
+ say 'Error' rc 'in line' sigl':' "ERRORTEXT"(rc)
+ say "SOURCELINE"(sigl)
+ say 'Record read:' rec
+ call quit ,20
+
+Quit:
+ address tso "delstack"
+ if arg(1)<>'' then say arg(1)
+ zispfrc=word(arg(2) 0,1)
+ address ispexec "vput zispfrc shared"
+ exit 0
+
+TestRxrv: /* run test */
+trace off
+ say ''
+ t=arg(1)
+ if arg(3)<>'' then t=t '-' arg(3)
+ say 'Testing ' t
+ cc=RunRxRv(arg(1))
+ say '->rc='cc 'gn='rexxvars_getn+0 'on='rexxvars_outn+0,
+     'rs='space(rexxvars_rsn) 'stat='rexxvars_stat
+ if cc>word(arg(2) 0,1) then do
+   testrc=8
+   zz=Quit('****Bad rc',8)
+ end
+ outn=rexxvars_outn
+ return cc
+
+RunRxRv: /* run pgm */
+ cc=REXXVARS(arg(1))
+ parse var rexxvars_stat . ' NAMEN('rxv_namen')' .,
+   0 . ' OUTN('rxv_outn')' . 0 . ' GETN('rxv_getn')' .,
+   0 . ' SORT('rxv_sort')' . 0 . ' DELN('rxv_deln')' .
+ return cc
+XMsg: if arg(1)<>'' then say arg(1);return word(arg(2) 0,1)
+
+TestErrors: Procedure    /* test some error conditions */
+ say 'Testing errors'
+ xrc=8
+ cc=TestRxrv('abc var(si.#)',xrc)
+ if cc<>xrc then zz=Quit('Bad function did not end rc' xrc', but' cc,6)
+ xrs='Invalid function'
+ if rexxvars_rsn<>xrs then zz=Quit('Bad reason' rexxvars_rsn 'ne' xrs,6)
+ cc=TestRxrv('index',8)
+ if cc<>xrc then zz=Quit('Missing varname did not end rc' xrc', but' cc,6)
+ xrs='Required parameter missing'
+ if rexxvars_rsn<>xrs then zz=Quit('Bad reason' rexxvars_rsn 'ne' xrs,6)
+ say ''
+ return 0
+
+MkTextq:
+ "delstack"
+ queue  'Alpha    Doctor Who is a British science-fiction             '
+ queue  'Bravo    television programme produced by the BBC from 1963  '
+ queue  'Charlie  to the present day. The programme depicts the       '
+ queue  'Delta    adventures of the Doctor, a Time Lord a             '
+ queue  'Echo     time-travelling humanoid alien. He explores the     '
+ queue  'Foxtrot  universe in his TARDIS, a sentient time-travelling  '
+ queue  'Golf     space ship. Its exterior appears as a blue British  '
+ queue  'Hotel    police box, which was a common sight in Britain in  '
+ queue  'India    1963 when the series first aired. Along with a      '
+ queue  'Juliet   succession of companions, the Doctor combats a      '
+ queue  'Kilo     variety of foes while working to save               '
+ queue  'Lima     civilisations and help people in need. The show is  '
+ queue  'Mike     a significant part of British popular culture, and  '
+ queue  'November elsewhere it has become a cult television           '
+ queue  'Oscar    favourite.                                          '
+ queue  'Papa      The show has influenced generations of British     '
+ queue  'Quebec   television professionals, many of whom grew up      '
+ queue  'Romeo    watching the series. The programme originally ran   '
+ queue  'Sierra   from 1963 to 1989. After an unsuccessful attempt    '
+ queue  'Tango    to revive regular production in 1996 with a         '
+ queue  'Uniform  backdoor pilot in the form of a television film,    '
+ queue  'Victor   the programme was relaunched in 2005 by Russell T.  '
+ queue  'Whisky   Davies who was showrunner and head writer for the   '
+ queue  'Xray     first five years of its revival, produced in-house  '
+ queue  'Yankee   by BBC Wales in Cardiff. The first series of the    '
+ queue  'Zulu     21st century, featuring Christopher Eccleston ....  '
+ #textq=queued()
+ Return 0
+
+MkTextn: procedure expose textn. #textn
+ drop textn.
+ Call MkTextq
+ qn=queued()
+ do n=1 to qn
+   parse pull t
+   textn.n=strip(t,'t')
+ end
+ textn.0=qn
+ #textn=qn+1
+ return 0
+
+MkTextw:
+ parse value 'Kilroy was here yesterday' with who what where when
+ #textw=4
+ return 0
+
+TestListStem: Procedure
+ say '>List stem text.'
+ Call MkTextn
+ #textn=0+textn.0
+ if TestRxrv('list stem(textn.) nw(12) lw(120)')<>0 then call quit ,8
+ say 'List stem ok'
+ say ''
+ return 0
+
+TestListStack: Procedure
+ say '>List stack'
+ Call MkTextq
+ q#=queued()
+ if TestRxrv('list stack lw(120) ')<>0 then call quit ,8
+ say 'queud # after list='queued()
+ if queued()<>q# then call quit 'Stacksz after is' queued()', not' q#,8
+ say '>List filtered stack'
+ if TestRxrv('list stack lw(120) onda(*who*)')<>0 then call quit ,8
+ say 'queud # after list='queued()
+ if queued()<>q# then call quit 'Stacksz after is' queued()', not' q#,8
+ say ''
+ return 0
+
+TestSortDFSP: Procedure
+ say '>SORT using DFSPARM to reorg record'
+ Call MkTextn
+ #textn=0+textn.0
+ /* make randomized list with nnnn at front , sample
+    ----+----1----+----2----+----3----+----4----+----5--
+    0001 Alpha    Doctor Who is a British science-fiction */
+ drop textr. randc.
+ parse value 0 with randc. textr.
+ do n=1 to #textn
+   do forever
+     m=random(1,#textn)
+     if randc.m then iterate
+     randc.m=1
+     leave
+   end
+   textr.m=right(n,4,0) textn.n
+ end
+ textr.0=#textn
+ drop textn.
+ /*say 'list before'
+ cc=RexxVars('list stem(textr.) nw(10) lw(120)')*/
+ /* make DFSPARM, run sort */
+ cc=bpxwdyn('alloc new delete dd(DFSPARM)',
+            'lrecl(80) recfm(f,b) blksize(0)',
+            'tracks space(1,1) unit(sysda)')
+ if cc<>0 then call quit "alloc DFSPARM failed" cc
+ r.1=' OUTREC FIELDS=(1,8,14,9,9,5,23)'
+ "execio 1 diskw dfsparm (stem r. finis)"
+ if rc<>0 then zz=BpxWdyn('free dd(DFSPARM)'),
+             + quit("write DFSPARM failed" rc)
+ cc=RexxVars('sort stem(textr.) fields(6,8,ch,a)')
+ call BpxWdyn 'free dd(DFSPARM)'
+ if cc<>0 then call quit "sort failed" cc
+ say 'Reordered records after sort'
+ cc=RexxVars('list stem(textr.) nw(10) lw(120)')
+ call BpxWdyn 'free dd(DFSPARM)'
+ drop textr. textc.
+ say ''
+ return 0

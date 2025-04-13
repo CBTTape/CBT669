@@ -1,0 +1,89 @@
+ /*                                                      REXX
+ RXPIPE Pds member list   (under developmemt)
+ Make member list using PDSMAIN
+
+ Syntax  PDSMBRL dsnameÝ(member)¨ | ddnameÝ(member)¨ ÝVOL volser¨
+                 ÝÝFIELDS | F¨ field-list¨ ÝWHERE | W filter¨
+
+----+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8
+PDS230I MEMBER      VER.MOD  CREATED   LAST MODIFIED  SIZE  INIT   MOD   ID
+PDS230I  $$README    01.00  23/01/26  23/01/26 10:59     1     1     0  WJENSEN
+----+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8
+PDS232I NAME     ALIASOF   CREATED  SIZE SSI      ATTRIBUTES
+PDS232I OPERLG8A          17/02/13 12880          R24, A31
+----+----1----+----2----+----3----+----4----+----5----+----6----+----7----+----8
+*/
+
+ parse value 0 with rc err vol @f @fields @v @vol @w @where
+ arg dsn p
+ interpret RXPIKPAR('F' p,'f fields v vol w where','@')
+ fldl=space(@f @fields)
+ whr =strip(@w @where)
+ if fldl='' then fldl='name'
+ if @vol<>'' then vol='VOLUME('@vol')'
+ parse value strip(dsn) with dsn'('mbr')' .
+ if pos('.',dsn)=0 then p='FILE('dsn')'
+ else p=requote(dsn) vol
+ zz=outtrap('lst.')
+ "pdsmain" p "attr" word(mbr ':',1) "short"
+ cc=rc
+ zz=outtrap('off')
+ if cc<>0 then return xmsg('Memberlist rc' cc)+8
+ ?whr=whr<>''
+
+ parse value '' with aliasof ssi attr credt moddt modtm vermod ,
+   size init mod id
+ p=pos('VER.MOD',lst.1)
+ if p>0 then do              /* source */
+   if p=21 then @p=10
+   else @p=2
+   do lstn=2 to lst.0
+     parse var lst.lstn =(@p) name +8 +4 vermod +5,
+       +2 credt +8 +2 moddt +8 +1 modtm +5 +1 size +5 +1 init +5,
+       +1 mod +5 +2 id +8 .
+     id=left(id,8)
+     credt=FmtDate(credt)
+     moddt=FmtDate(moddt)
+     /* name vermod credt moddt modtm size init mod user */
+     Call Stack
+   end
+ end
+ else do                     /* loadlib */
+   @p=pos('NAME',lst.1)
+   do lstn=2 to lst.0
+     parse var lst.lstn =(@p) name +8 +1 aliasof +8,
+       +1 credt +8 +1 size +5 +1 ssi +8 +1 attr
+     credt=FmtDate(credt)
+     sattr=space(translate(attr,' ',','))
+     attr=space(attr,0)
+     a   =''
+     do i=1 to words(sattr)
+       p=wordpos(word(sattr,i),'NONE APF=1 RENT REUS REFR R24 R31 RANY',
+         'A24 A31 AANY')
+       a=a word('?? NONE AC RE RU RF R2 R3 RA A2 A3 AA',p+1)
+     end
+     sattr=strip(translate(a,',',' '),'b',',')
+     /* name aliasof credt size ssi attr sattr */
+     Call Stack
+   end
+ end
+ return 0
+
+Stack:
+ if ?whr then do
+   interpret "$=("whr")"
+   if \$ then return 0
+ end
+ interpret queue fldl
+ return 0
+
+FmtDate:
+ parse value arg(1) with zy'/'zm'/'zd
+ if zy='' then return ''
+ parse value date('s') with tc +2 ty +2 .
+ if zy>ty then return tc-1||zy'-'zm'-'zd
+ return tc||zy'-'zm'-'zd
+
+Requote: trace off
+if arg(1)='' then return '';else return "'"Unquote(arg(1))"'"
+Unquote: trace off;return strip(space(translate(arg(1)," ","'")))

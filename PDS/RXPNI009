@@ -1,0 +1,161 @@
+/*                                                         rexx
+    REXX Pattern Check IVP for v009 - new format 2 syntax
+*/
+
+ say 'Test REXX Pattern Check utility RXPATTRN',
+     'Version:' RxPattrn('Version')
+ say ''
+
+ say 'Make match and nomatch stems'
+ Call MakeTestStem1
+ drop match. nomatch.
+ cc = TestF2('stem(test.) mask(*LIB*)',
+             'match(match.) nomatch(nomatch.)')
+ say 'Match ('match.0')....'
+ do n=1 to match.0
+   say ' 'match.n
+ end
+ say 'Nomatch ('nomatch.0')....'
+ do n=1 to nomatch.0
+   say ' 'nomatch.n
+ end
+ drop match. nomatch.
+ say ''
+
+ say 'Make match by position'
+ Call MakeTestStem1
+ cc = TestF2('stem(test.) mask(*LIB*)',
+             'match(match.) pos(4) len(33)')
+ say 'Match ('match.0')....'
+ do n=1 to match.0
+   say ' 'match.n
+ end
+ if rxpattrn_match<>7 then,
+   exit xmsg('matchnum is' rxpattrn_match+0', not 7')+8
+ drop match.
+ say ''
+
+ say 'Make matrix stem'
+ Call MakeTestStem1
+ drop matrix.
+ cc = TestF2('stem(test.) matrix(matrix.) mask(*LIB*)')
+ say left('Org',40) 'Match'
+ do n=1 to test.0
+   say left(test.n,40) matrix.n
+ end
+ if rxpattrn_match<>10 then,
+   exit xmsg('matchnum is' rxpattrn_match+0', not 10')+8
+ drop matrix.
+ say ''
+
+ say 'Make overlay stem'
+ Call MakeTestStem1
+ drop new.
+ cc = TestF2('stem(test.) mask(*LIB*)',
+             'overlay(new.) ovlpos(1) mchr(+) nchr(-)')
+ say left('Org ',40) 'Overlayed'
+ do n=1 to test.0
+   say left(test.n,40) new.n
+ end
+ say ''
+
+ say 'Filter using multiple ORed masks'
+ drop new.
+ Call MakeTestStem1
+ cc = Testf2('stem(test.) match(new.) mask(*LIB*,*CICS*,*LOAD*) MDLM(,)')
+ do n=0 to new.0
+   say 'new.'left(n,2) left(new.n,30)
+ end
+ if rxpattrn_match<>12 then exit xmsg('matchnum ne 12')+8
+ say ''
+
+ say 'Filter using multiple ANDed masks'
+ drop new.
+ Call MakeTestStem1
+ cc = Testf2('stem(test.) match(new.) mask(DEZ*,*.I*) MDLM(,)',
+      'MCND(A)')
+ do n=0 to new.0
+   say 'new.'left(n,2) left(new.n,30)
+ end
+ if rxpattrn_match<>2 then exit xmsg('matchnum ne 2')+8
+ say ''
+
+ say 'Masks in a stem'
+ drop match. mask.
+ mask.1='*P.A*'     /* 2 match */
+ mask.2='*T.D*'     /* 1 match */
+ mask.3='*I.I*'     /* 2 match */
+ mask.0=3
+ Call MakeTestStem1
+ cc = TestF2('stem(test.) maskstem(mask.) match(match.)')
+ say 'Match ('match.0')....'
+ do n=1 to match.0
+   say ' 'match.n
+ end
+ if rxpattrn_match<>5 then,
+   exit xmsg('matchnum is' rxpattrn_match+0', not 5')+8
+ drop match.
+ say ''
+
+ say 'Compatibility'
+ Call MakeTestStem1
+ cc = TestF2('stem(test.) mask(*LIB*) nstem(test.)')
+ say 'Match ('test.0')....'
+ do n=1 to test.0
+   say ' 'test.n
+ end
+
+ say 'Test completed'
+ exit 0
+
+TestF2:
+ say 'Test format 2:' arg(1)
+ cc = RxPattrn(arg(1))
+ say 'rc:' cc 'matchnum:' rxpattrn_match 'rs:' strip(rxpattrn_rs)
+ if cc<>0 then exit xmsg('bad rc')+12
+ return 0
+
+ListTestStem:
+ if arg(1)<>'' then say arg(1)
+ do n=0 to test.0
+   say 'test.'left(n,2) left(test.n,30)
+ end
+ return 0
+
+XMsg: if arg(1)<>'' then say arg(1);return word(arg(2) 0,1)
+
+ /* make test stem */
+MakeTestStem1:
+ drop test.
+ queue  'DDIR.I                    '
+ queue  'HFS                       '
+ queue  'LIB                       '
+ queue  'BACKUP.ALL                '
+ queue  'BACKUP.ALL.TRS            '
+ queue  'DFH410.CICS.DFHGCD        '
+ queue  'KG.DATA                   '
+ queue  'HCD.TRACE                 '
+ queue  'LIB.LINKLIB               '
+ queue  'DCOL.DATASET.REPORT       '
+ queue  'LIB.DOCLIB                '
+ queue  'LIB.MACLIB                '
+ queue  'DCOLLECT.BYVOL            '
+ queue  'DCOLLECT.DATA             '
+ queue  'DATADICT.EXPORT           '
+ queue  'DCOLLECT.JCL              '
+ queue  'DCOLLECT.LIB              '
+ queue  'LIB.EXEC                  '
+ queue  'DEZHI.EXEC                '
+ queue  'HCD.MSGLOG                '
+ queue  'DEZHI.ISPMLIB             '
+ queue  'DEZHI.ISPPLIB             '
+ queue  'LIB.CLIST                 '
+ queue  'JCL.XML                   '
+ queue  'DASDVOL.REPORT            '
+ queue  'DEZHI.LOAD                '
+ queue  'DEZHI.MACLIB              '
+ test.0=queued()
+ do n=1 to test.0
+   pull test.n .
+ end
+ return 0

@@ -1,0 +1,490 @@
+//ISX1006  JOB (1),'ispf-pnl-exit',
+//* RESTART=IVP1,
+//  CLASS=A,REGION=32M,COND=(0,LT)
+//*
+//* ?? ISPDPX01 - Panel exit 01 - Use REXX stem as panel part ? e ?
+//*
+// SET VER=006
+// SET IVP=I&VER
+// SET IVP=IVP1
+//*
+//         EXEC ASMACL, XL,MACLIST=ISPDPX01,
+//             PARM.C='TERM',
+//             PARM.L='LIST,XREF'
+//C.SYSLIB   DD  DSN=SYS1.MACLIB,DISP=SHR
+//           DD  DSN=SYS1.MODGEN,DISP=SHR
+//           DD  DISP=SHR,DSN=CBT669.PP.ISPDPX01.LIB
+//C.SYSTERM  DD  SYSOUT=*
+//C.SYSIN    DD *
+**asma syslib *
+**asma opt    term
+*Process compat(macrocase)
+
+*-
+* This ISPF panel exit is used to insert records into an ISPF panel.
+* It can replace the entire panel, or one or more sections
+* with data in REXX stem variable(s).
+*
+* See the manual 'z/OS: ISPF Dialog Developer's Guide and Reference'
+* chapter 'Panel definition statement reference' section 'Defining
+* the INEXIT section' for details.
+*
+* Note that the )END statement must still be present in the panel.
+*
+* The exit looks for a line starting with '*ISPDPX01 vname' in the
+* panel, then inserts the entire stem vname there.
+*
+* When using specific stemname
+*  The vname must include the trailing dot, max width incl the dot
+*  is 5 characters.
+*
+* When using indirect stemname
+*  The vname must be in paranthesis and must be a normal variable
+*  name of 1-8 characters. The stemname in the vname must adhere
+*  to the specific stemname rules above.
+*
+* Multiple occurences of '*ISPDPX01 vname' is allowed, see member
+* ISX1PNL2 for a sample.
+*
+*
+* Sample panel using specific stemname, named TESTX001:
+*
+*  )INEXIT LOAD,ISPDPX01
+*  *ISPDPX01 pl.
+*  )END
+*
+*  Sample REXX code for panel:
+*
+*  pl.1 = ')ATTR'
+*  pl.2 = ')BODY expand(\\)'
+*  pl.3 = '%Test panel exit 1'
+*  pl.4 = '%Cmd =>_zcmd  \ \ +'
+*  pl.5 = '+'
+*  pl.6 = 'Just some text'
+*  pl.7 = '+'
+*  pl.8 = ')INIT'
+*  pl.9 = ')PROC'
+*  pl.0 = 9
+*  address ispexec "display panel(TESTX001)"
+*
+* Sample panel using indirect stemname, named TESTX002:
+*
+*  )INEXIT LOAD,ISPDPX01
+*  *ISPDPX01 (pnlstem)
+*  )END
+*
+*  Sample REXX code for panel:
+*
+*  Populate stem pl. as above....
+*  pnlstem='pl.'
+*  address ispexec "display panel(TESTX002)"
+*
+*
+* The program is written using my structured assembly macro set WSAM.
+* These macros are similar but not identical to IBM's structured
+* assembly macros.
+*
+* Version: 006 2022/09/17
+*
+* New in this build
+*  - Run as REXX function to return version info and to copy stack to
+*    stem.
+*    ver=ISPDPX01('version')
+*    rc =ISPDPX01('Q2S stemname.')
+*
+* Contact info
+*  email   willy@harders-jensen.com
+*  web     https://harders-jensen.com
+*-
+&module  setc  'ISPDPX01'
+&modver  setc  '006 2022/09/17'
+&cndsct  setc  'SHOW'            execute trace blocks
+&cndsct  setc  'HIDE'            hide trace blocks
+&rc_process  setc  '0'           process (modified) record
+&rc_addrec   setc  '2'           insert new panel record.
+&rc_delrec   setc  '4'           delete the current panel record.
+&rc_stopcall setc  '8'           dont' call exit again.
+&rc_quit     setc  '20'          terminate panel.
+*
+         print off
+         COPY  SYSMACS
+         COPY  WSAMMACS           allow structured asembly language
+         COPY  REXXMACS           REXX i/f
+         COPY  ISX1MACS           local combined macros
+         print on
+*        COPY  Z10MACS
+         #subr set,entry=label
+
+*-
+* Initialization
+*-
+
+         Using $wrk,r10
+         using pnlparm,r9
+&module  #module base=r12 print=gen
+         ereg  0,1
+         lr    r14,r0
+* called as function?
+         if    (=c'ENVBLOCK',eq,0(r14))
+           j     Function
+         endif
+         lr    r9,r1
+*
+* if first time then get some storage
+*
+         l      r2,pnldataa
+         if    (icm,r10,15,0(r2),z)
+           Getmain R,lv=$wrkl,loc=31
+           lr    r10,r1
+           st    r10,0(r2)
+           la    r13,sa1
+           clear vdata
+           mvc   vname,vdata
+           zap   vnum,=p'0'
+           mvi   action,0
+           RxInit Link,norexx=norexx
+           mvlit vname,'ISX1VER',lr=r2
+           mvlit vdata,'&modver',lr=r3
+           RxVPut name=(vname,(r2)),data=(vdata,(r3))
+         endif
+         la    r13,sa1
+*
+* Process according to action code
+*  0  scan for the insertion point
+*  1  insert next record
+*     the insertion point record is deleted by end of insert
+*  2  process complete, cleanup
+*
+         if     (cli,action,eq,0)
+           #subr call,Locate
+         elseif (cli,action,eq,1)
+           #subr call,Insert
+         elseif (cli,action,eq,2)
+           la    r15,&rc_stopcall
+         else
+           StrMake msgtxt,'internal error ',(action,1,c2x),lr=r7
+           TsoPutLn msgtxt,(r7)
+           la    r15,&rc_quit
+         endif
+*
+         lr    r5,r15
+         if    (cfi,r5,ge,&rc_stopcall)
+           Freemain R,lv=$wrkl,a=(10)
+         endif
+         #module exit,rc=(r5)
+NoRexx   ds    0h
+         TsoPutln 'REXX not initialized'
+         #module exit,rc=&rc_quit
+
+*-
+* Action 0 : locate insertion point
+*-
+Locate   #subr ,
+         CondSect &cndsct
+         TsoPutLn '*Locate'
+         CondSect ,
+         l     r6,pnlbfra            -> buffer address
+         l     r6,0(r6)              -> buffer
+         clear msgtxt
+         CondSect &cndsct
+         mvc   msgtxt(30),0(r6)
+         TsoPutLn msgtxt,40
+         clear msgtxt
+         CondSect ,
+         if    (tm,pnlflgs,x'80',o)  end of file?
+           #subr exit,rc=&rc_stopcall      now
+         endif
+         if    (clc,=c'*&module',ne,0(r6))
+           #subr exit,rc=&rc_process
+         endif
+
+* insertion point found, locate variable name
+         STRWORD STR=((r6),40),NUM=2
+         if    (ltr,r1,r1,z)          zero=not found
+           TsoPutLn 'vname missing'
+           #subr exit,rc=&rc_quit     quit now
+         endif
+         lr    r2,r1                  copy address
+         lr    r3,r0                  copy length
+
+* v004  indirect panel stem def
+         lr    r1,r2                   -> varname
+         if    (cli,0(r1),eq,c'(')     indirect by enclosed ??
+           ahi   r3,-1                 change to indirect by ampersand
+           la    r1,=c'&&'
+         endif
+         if (cli,0(r1),eq,c'&&')       indirect by ampersand ?
+           ahi   r3,-2
+           j     *+10
+           mvc   vname(*-*),1(r2)      copy to name field
+           ex    r3,*-6
+           oc    vname,blank
+           CondSect &cndsct
+           Strmake msgtxt,'Indirect vname ',(vname,1(r3)),lr=r2
+           TsoPutLn msgtxt,(r2)
+           clear msgtxt
+           CondSect ,
+           clear vdata
+           RxVGet name=(vname,1(r3)),data=vdata
+           if    (ltr,r15,r15,nz)
+             Strmake msgtxt,'Could not get vname ',vname,lr=r2
+             TsoPutLn msgtxt,(r2)
+             #subr exit,rc=&rc_quit
+           endif
+           mvc   vname,vdata
+           la    r2,vname
+           lr    r3,r0
+         else
+           lr    r15,r3
+           bctr  r15,0
+           j     *+10
+           mvc   vname(*-*),0(r2)      copy to name field
+           ex    r15,*-6
+         endif
+         st    r3,vbasel               save length of stem base
+         st    r3,vnamel               save length of stem base
+         oc    vname,blank
+         CondSect &cndsct
+         Strmake msgtxt,'Final vbase "',(vname,f.vbasel),'"',lr=r7
+         TsoPutLn msgtxt,(r7)
+         clear msgtxt
+         CondSect ,
+*
+         if    (c,r3,gt,=a(l'vname)) too wide?
+           Strmake msgtxt,'Vname ',((r2),(r3),,12),' is too wide',     c
+               lr=r2
+           TsoPutLn msgtxt,(r2)
+           #subr exit,rc=&rc_quit     quit now
+         endif
+*
+* get count
+*
+         RxStemname base=(vname,f.vbasel),stema=vname,num=0
+         lr    r5,r0                  length of generated name
+         st    r5,vnamel
+         CondSect &cndsct
+         Strmake msgtxt,'get count by ',(vname,(r5)),lr=r7
+         TsoPutln msgtxt,(r7)
+         clear msgtxt
+         CondSect ,
+         RxVGet name=(vname,(r5)),data=vdata
+         lr    r5,r0                  length
+         st    r0,vdatal
+         if    (ltr,r15,r15,nz)
+           CondSect &cndsct
+           TsoPutLn 'no records'
+           CondSect ,
+           clear vname
+           zap   vmax,=p'0'        no records to process
+           zap   vnum,=p'0'
+           mvi   action,0         0 = scan for further insertions
+           #subr exit,rc=&rc_delrec delete record
+         endif
+* get stem max
+*        check all numbers
+         StrTest str=(vdata,(r5)),test=NUM
+         if    (nz)
+           Strmake msgtxt,(vname,f.vnamel),' is not numeric',lr=r3
+           TsoPutLn msgtxt,(r3)
+           #subr exit,rc=&rc_quit
+         endif
+*        get count
+         bctr  r5,0
+         j     *+10
+         pack  vmax,vdata(*-*)
+         ex    r5,*-6
+         CondSect &cndsct
+         l     r2,vnamel
+         ahi   r2,1
+         strmake msgtxt,'count=',(vmax,4,p2d),lr=r7
+         TsoPutLn msgtxt,(r7)
+         clear msgtxt
+         CondSect ,
+         mvi   action,1
+         #subr call,Insert
+         #subr exit,rc=(r15)
+
+*-
+* Action 1 : insert next record
+*-
+Insert   #Subr
+         CondSect &cndsct
+         TsoPutLn '*Insert'
+         CondSect ,
+         ap    vnum,=p'1'
+         if    (cp,vnum,gt,vmax)  all done?
+           CondSect &cndsct
+           TsoPutLn 'all done, set rescan'
+           CondSect ,
+*          reset fields
+           mvi   action,0         0 = scan for further insertions
+           clear vname
+           zap   vnum,=p'0'
+           #subr exit,rc=&rc_delrec delete record
+         endif
+* construct varname for vget
+         RxStemName base=(vname,f.vbasel),stema=vname,pnum=vnum
+         lr    r3,r0             copy length
+         st    r0,vnamel
+         CondSect &cndsct
+         strmake msgtxt,'get vname ',(vname,(r3)),lr=r7
+         TsoPutLn msgtxt,(r7)
+         clear msgtxt
+         CondSect ,
+         RxVGet name=(vname,(r3)),data=vdata
+         st    r0,vdatal
+         lr    r4,r0              copy length
+* replace screen buffer
+         lm    r2,r3,pnlbfra
+         l     r2,0(r2)           -> buffer
+         l     r3,0(r3)           -> buffer sz
+         if    (cr,r4,gt,r3)      longer than buffer?
+           StrMake  msgtxt,(vname,f.vnamel),' vl gt bl ',lr=r7
+           TsoPutLn msgtxt,(r7)
+           clear msgtxt
+           #subr exit,rc=&rc_quit
+         endif
+         lr    r15,r3
+         ahi   r15,-2             mch len, minus char 1
+         mvi   0(r2),c' '
+         mvc   1(*-*,r2),0(r2)
+         ex    r15,*-6            clear buffer
+* trace bfr
+         CondSect &cndsct
+         Strmake  msgtxt,'data: ',(vdata,(r4)),lr=r7
+         TsoPutLn msgtxt,(r7)
+         clear msgtxt
+         CondSect ,
+         bctr  r4,0               mch len of buffer
+         mvc   0(*-*,r2),vdata
+         ex    r4,*-6             copy data
+         #subr exit,rc=&rc_addrec insert record
+
+*-
+* Called as REXX function
+*-
+Function ds    0h
+         Getmain R,lv=$wrkl,loc=31
+         lr    r10,r1
+         la    r13,sa1
+         clear retval
+         mvi   retval,c'0'             default return value
+*
+         ereg  0,1
+         clear prm
+         RxInit parmarea=prm
+         lr    r3,r15                  copy length
+         oc    prm,blank
+         Select
+           when (=c'VERSION',eq,prm)
+             mvlit retval,'&modver'
+           when (=c'Q2S',eq,prm)
+             #subr call,Q2S
+           when other
+             mvlit retval,'12'
+         Endselect
+*-
+* end of function
+*-
+         Strlen str=retval,lr=r2
+         RxRetVal retval,(r2)
+         Freemain R,lv=$wrkl,a=(10)
+         #module exit
+*-
+* Copy stack to stem
+*-
+Q2S      #Subr
+         RxStack queued
+         if    (ltr,r7,r1,z)           count
+           mvi   retval,c'4'           empty stack
+           #subr exit
+         endif
+         StrWord str=prm,num=2
+         if    (ltr,r1,r1,z)           no stemname
+           mvi   retval,c'8'
+           #subr exit
+         endif
+         lr    r2,r0                   name length
+         st    r2,vbasel
+         bctr  r2,0
+         j     *+10
+         mvc   vname(*-*),0(r1)
+         ex    r2,*-6
+         Do from=(r6,1),to=(r7),by=1
+           RxStack pull
+           lr    r4,r1                 data address
+           lr    r5,r0                 data length
+           RxStemPut name=wrk256,base=(vname,f.vbasel),num=(r6),       c
+               data=((r4),(r5))
+         Enddo
+*        cvd   r7,dw
+*        STRP2N FROM=dw,TO=vdata
+*        lr    r2,r0
+         STRR2D reg=r7,TO=(dw,8)
+         RxStemPut name=wrk256,base=(vname,f.vbasel),num=0,            c
+               data=dw (vdata,(r2))
+         #subr exit
+*-
+* local data
+*-
+zero     dc    a(0)
+blank    dc    cl140' '
+         ltorg
+*
+* Map panel parm
+*
+pnlparm  dsect
+pnlnamea ds   a
+pnlbfra  ds   a
+pnlbfrl  ds   a
+pnlrecl  ds   a
+pnlflgs  ds   a
+pnldataa ds   a
+*
+* Own dsect
+*
+$wrk     dsect
+sa1      ds    18a
+sa2      ds    18a
+sa3      ds    18a
+sa4      ds    18a
+action   ds    x
+fw       ds    f
+dw       ds    d
+         RexxMacs ds
+vnum     ds    pl4                 current stem num
+vmax     ds    pl4                 max stem num
+vbasel   ds    a
+vnamel   ds    a
+vname    ds    cl120
+vdatal   ds    a
+vdata    ds    cl254
+retval   ds    cl120
+msgtxt   ds    cl140
+wrk256   ds    xl256
+prm      equ   wrk256+128,128
+$wrkl    equ   *-$wrk
+         print nogen
+         RexxMacs dsect,print=gen
+         END
+//*
+//* prod version goes to linklib
+//*
+//L.SYSLMOD  DD DISP=SHR,DSN=CBT669.LINKLIB(ISPDPX01)
+//L.SYSLIB   DD DISP=SHR,DSN=ISP.SISPLOAD
+//*
+//* production version is in linklib
+//*
+//IVP1     EXEC PGM=IKJEFT1B,
+//             PARM='ISPSTART CMD(ISX1&IVP)'
+//STEPLIB  DD DISP=SHR,DSN=CBT669.LINKLIB
+//SYSEXEC  DD DISP=SHR,DSN=CBT669.PP.ISPDPX01.LIB
+//SYSTSPRT DD SYSOUT=*
+//SYSTSIN  DD DUMMY
+//ISPMLIB  DD DISP=SHR,DSN=ISP.SISPMENU
+//ISPPLIB  DD DISP=SHR,DSN=ISP.SISPPENU
+//ISPSLIB  DD DISP=SHR,DSN=ISP.SISPSENU
+//ISPTLIB  DD DISP=SHR,DSN=ISP.SISPTENU
+//ISPPROF  DD UNIT=SYSDA,SPACE=(TRK,(5,5,4)),RECFM=FB,LRECL=80
+//ISPLOG   DD SYSOUT=*,RECFM=VA,LRECL=125,BLKSIZE=129
+//ISPFILE  DD SYSOUT=*,RECFM=FB,LRECL=80,BLKSIZE=6240

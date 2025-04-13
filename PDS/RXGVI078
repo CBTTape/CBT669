@@ -1,0 +1,70 @@
+/*                                                                      rexx
+  REXXGBLV IVP - test build 078
+*/
+trace off
+
+ /* Build 078, import with data mask */
+ say 'Testing build 078'
+ say 'RexxGblv version:' Rexxgblv('version')
+
+ call Mkd
+ cc=Rexxgblv('drop pool(test)')
+ cc=Rexxgblv('save var(data.) pool(test)')
+ drop data.
+ cc=Rexxgblv('list pool(test)')
+ cc=Rexxgblv('load var(data.) pool(test) tostack')
+ qn=queued()
+ say 'Test1 qn='qn
+ do n=1 to queued()
+   parse pull r
+   say '#n:' right(n,3) '-' r
+ end
+ if qn<>20 then say '** bad number' qn 'in stack, must be 20'
+ if word(r,1)<>'020' then say '** bad data in last record' r
+ "delstack"
+
+ cc=Rexxgblv('load var(data.*) pool(test) tostack')
+ qn=queued()
+ say 'Test2 qn='qn
+ do n=1 to queued()
+   parse pull r
+   if n=1 then r1=r
+   say '#n:' right(n,3) '-' r
+ end
+ if qn<>21 then say '** bad number' qn 'in stack, must be 20'
+ if r1<>'20' then say '** bad data in first record' r1
+ "delstack"
+
+ say 'Text 3 - to stem'
+ cc=Rexxgblv('load var(data.) pool(test)')
+ cc=Rexxgblv('rlist var(data.)')
+
+ exit 0
+
+Mkd:
+ "delstack"
+ queue  '001   WJ.A.DATASETS      '
+ queue  '002   WJ.AIXTEST.AIXP1   '
+ queue  '003   WJ.AIXTEST.DB      '
+ queue  '004   WJ.AIXTEST.DB.DATA '
+ queue  '005   WJ.AIXTEST.DB.INDEX'
+ queue  '006   WJ.AIXTEST.AIX     '
+ queue  '007   WJ.AIXTEST.AIX.DATA'
+ queue  '008   WJ.AIXTEST.AIX.INDEX'
+ queue  '009   WJ.ALLMBR.CNTL     '
+ queue  '010   WJ.AM.CNTL         '
+ queue  '011   WJ.AM.CNTL2        '
+ queue  '012   WJ.ASMA.LIST       '
+ queue  '013   WJ.ASMA.MSGS       '
+ queue  '014   WJ.ASMA.OBJ        '
+ queue  '015   WJ.ASMAL.LIB       '
+ queue  '016   WJ.ASML.LIST       '
+ queue  '017   WJ.AUTO.SUBSYS.LIB '
+ queue  '018   WJ.A0.PARMLIB      '
+ queue  '019   WJ.BACKUP.ALL      '
+ queue  '020   WJ.BACKUP.ALL.TRS  '
+ data.0=queued()
+ do n=1 to data.0
+   parse pull data.n
+ end
+ return 0

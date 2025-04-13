@@ -1,0 +1,115 @@
+/*                                                                   rexx
+ Quick-sort stack
+
+ Build 2024-02-21.01
+
+ Syntax: sort ÝRn¨ ÝWn¨ Ýp l¨ .. ÝRn¨ ÝWn¨ Ýp l¨ ÝA¨ ÝD¨ ÝR¨
+    A       sort ascending (default).
+    D | R   sort descending / reversed.
+    Wn      word num n.
+    Rn      right n of string.
+    p l     from position p with length l.
+ The portions selected are concatenated together to form the sort
+ criteria.
+ Samples
+  sort 'w3 w2 1 4'
+
+ org: https://rosettacode.org/wiki/Sorting_algorithms/Quicksort version 1
+ front-end added Willy Jensen
+*/
+
+ if queued()=0 then return 0                     /* nothing to sort          */
+ parse value 'A' '00'x '01'x with ord x0 x1 qsp wlst
+ parse value copies('0 ',20) with rpl wpn wpl. .
+
+ /* front-end, validate parms, make data converter string */
+ arg prm
+ do while prm<>''
+   prm=strip(prm)
+   parse var prm p1 p2 .
+   select
+     when wordpos(p1,'A D R')>0 then parse var prm ord prm
+     when left(p1,1)='W' & datatype(substr(p1,2))='NUM' then do
+       parse var prm . +1 n prm
+       wlst=wlst n
+       wpn=wpn+1
+       qsp=qsp '|| left(word(r,'n'),wpl.'wpn')'
+     end
+     when left(p1,1)='R' & datatype(substr(p1,2))='NUM' then do
+       parse var prm . +1 l prm
+       qsp=qsp '|| right(r,'l')'
+       rpl=rpl+l                                 /* adjust prefix length     */
+     end
+     when datatype(p1)='NUM' & datatype(p2)='NUM' then do
+       parse var prm p l prm
+       qsp=qsp '|| substr(r,'p','l')'
+       rpl=rpl+l                                 /* adjust prefix length     */
+     end
+     otherwise return xmsg('***Bad qsort parm' prm)+20
+   end
+ end
+ if qsp<>'' then qsp=strip(strip(qsp),'b','|') "||"
+
+ /* if by-word then do one scan to get word pos and len */
+ if wpn>0 then do
+   c=''
+   do n=1 to wpn
+     w=word(wlst,n)
+     c=c';wpl.'n'=max(wpl.'n',length(word(r,'w')))'
+   end
+   qn=queued()
+   Interpret "do qn;parse pull r"c";queue r;end"
+   do n=1 to wpn
+     rpl=rpl+wpl.n                               /* adjust prefix length     */
+   end
+ end
+
+ /* pull the stack into a stem */
+ s.0=queued()
+ qsp="do #=1 to s.0;parse pull r;s.#="qsp" r;end"
+
+ /* run sort */
+ Interpret qsp
+ Call QSortX
+
+ /* backend - drop sort prefix and stack record */
+ parse value 1 s.0 1 with f t b
+ if pos(ord,'DR')>0 then parse value s.0 1 '-1' with f t b
+ rp=rpl+1
+ do #=f to t by b
+   queue substr(s.#,rp)
+ end
+ return 0
+
+xmsg: say arg(1); return 0
+
+QSortX: procedure expose S.
+ if s.0<2 then return 0                          /* nothing to sort          */
+ j=1+s.0                                         /* prevent error            */
+ s.j='00'x                                       /*  by no-value cond        */
+ b.1=s.0; a.1=1; $= 1                            /* size, pivot              */
+ if QSortio(b.1)  then return                    /* already in order?        */
+ do  while  $<>0;
+   L= a.$; t= b.$; $= $ - 1; if t<2  then iterate
+   H= L + t - 1;   ?= L  +  t % 2
+   if S.H<S.L then if S.?<S.H  then do; p= S.H; S.H=S.L; end
+              else if S.?>S.L  then p= S.L
+              else do; p= S.?; S.?= S.L; end
+              else if S.?<S.L then p=S.L
+              else if S.?>S.H  then do; p= S.H; S.H= S.L; end
+              else do; p= S.?; S.?= S.L; end
+   j= L+1; k= h
+   do forever
+     do j=j         while j<=k & S.j<=p;  end    /* a teeny-tiny loop        */
+     do k=k  by -1  while j< k & S.k>=p;  end    /* another   "    "         */
+     if j>=k  then leave                         /* segment finished?        */
+     _= S.j;   S.j= S.k;   S.k= _                /* swap J&K elements        */
+   end  /*forever*/
+ $= $ + 1
+ k= j - 1;   S.L= S.k;   S.k= p
+ if j<=?  then do; a.$= j; b.$= H-j+1; $= $+1; a.$= L; b.$= k-L;   end
+          else do; a.$= L; b.$= k-L;   $= $+1; a.$= j; b.$= H-j+1; end
+ end    /*while $<>0*/
+ return
+QSortio: /* test if data is already in order */
+parse arg n; do j=1 for n-1; k= j+1; if S.j>S.k then return 0; end; return 1

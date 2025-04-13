@@ -1,0 +1,273 @@
+/*                                                                  rexx
+ RXPipe Catalog Search
+
+ Based on SYS1.SAMPLIB(IGGCSIRX), change PULL to ARG and SAYs to QUEUE
+
+ Syntax: DSNLIST dsn-mask ÝVOL volser¨ ÝTYPE type¨ ÝCAT catname¨
+                 ÝFIELDS | F fldlist¨ ÝALL | A¨ ÝRVOL | R¨ ÝACAT¨
+
+   dsnmask    Like ISPF 3.4, but requires trailing '**'. to select
+              all datasets starting with dsnmask. See also the ALL
+              parameter.
+   type       Specific dtype or mask.
+   catname    Specific catname or mask.
+   fldlist    List of variables to retrieve. Available names are
+              DSNAME, DTYPE, CATNAME and VOLSER. DSNAME may be
+              specified as NAME and CATNAME as CATALOG. Default is
+              DSNAME DTYPE VOLSER. The fld-list is interpreted, so
+              can contain field names, quoted constants, expressions,
+              or a mixture thereof. Use REALVOL instead of VOLSER if
+              you want to have the real volser for an indirectly
+              cataloged dataset returned, see also the RVOL option.
+              Default is DSNAME DTYPE VOLSER.
+   ACAT       Set CATNAME = associated catalogname for TYPE ALIAS.
+   ALL|A      Select all datasets starting with dsnmask. Same as
+              adding '.**' to the dsnmask. Default is to select
+              datasets matching the supplied number of qualifiers in
+              dsnmask.
+   RVOL|R     Option to have the real volser for an indirectly
+              cataloged dataset returned. Using the option when you
+              do not want to redefne the default field list.
+  Note that up to 3 volsers may be requested by the VOLSER.n entry,
+  but the VOL filter only works on volser.1.
+
+ Sample
+   DSNLIST userid()'.**.isp*' FIELDS DSNAME VOLSER R A
+
+*/
+ arg $key prm
+ parse value copies('0 ',20) with rc $a $all $r $rvol acat .
+ parse value '' with $f $fields $vol $type $cat err
+ Interpret RXPIKPAR(prm,'f fields vol type cat a all r rvol acat','$',1)
+ if rc<>0 then return xmsg(err)+8
+ if $all | $a then $key=$key || '.**'
+ $fields = $fields || $f
+ $rvol=$rvol | $r
+ ?vol=($vol<>'')
+ ?volmask=(pos('%',$vol)>0 | pos('*',$vol)>0)
+ ?type=($type<>'')
+ ?typemask=(pos('%',$type)>0 | pos('*',$type)>0)
+ ?cat=($cat<>'')
+ ?catmask=(pos('%',$cat)>0 | pos('*',$cat)>0)
+ if $fields='' then $fields='DSNAME DTYPE VOLSER'
+ $fields=TransWord($fields,'NAME','DSNAME')
+ $fields=TransWord($fields,'CATALOG','CATNAME')
+ if wordpos('CATNAME',$fields)=0 then $acat=0    /* required operand */
+ /* beware of dataset cataloged indirectly */
+ ?realvol=$rvol
+ if \?realvol then ?realvol=(wordpos('REALVOL',$fields)>0)
+ if ?realvol then $fields=Transword($fields,'REALVOL','VOLSER')
+
+ /********************************************************************/
+ /*  INITIALIZE THE PARM LIST                                        */
+ /********************************************************************/
+MODRSNRC = SUBSTR(' ',1,4)          /*   CLEAR MODULE/RETURN/REASON  */
+CSIFILTK = SUBSTR($KEY,1,44)        /*   MOVE FILTER KEY INTO LIST   */
+CSICATNM = SUBSTR(' ',1,44)         /*   CLEAR CATALOG NAME          */
+CSIRESNM = SUBSTR(' ',1,44)         /*   CLEAR RESUME NAME           */
+CSIDTYPS = SUBSTR(' ',1,16)         /*   CLEAR ENTRY TYPES           */
+CSICLDI  = SUBSTR('Y',1,1)          /*   INDICATE DATA AND INDEX     */
+CSIRESUM = SUBSTR(' ',1,1)          /*   CLEAR RESUME FLAG           */
+CSIS1CAT = SUBSTR(' ',1,1)          /*   INDICATE SEARCH > 1 CATALOGS*/
+CSIRESRV = SUBSTR(' ',1,1)          /*   CLEAR RESERVE CHARACTER     */
+CSINUMEN = '0001'X                  /*   INIT NUMBER OF FIELDS       */
+CSIFLD1  = SUBSTR('VOLSER',1,8)     /*   INIT FIELD 1 FOR VOLSERS    */
+ /********************************************************************/
+ /*  BUILD THE SELECTION CRITERIA FIELDS PART OF PARAMETER LIST      */
+ /********************************************************************/
+CSIOPTS  = CSICLDI || CSIRESUM || CSIS1CAT || CSIRESRV
+CSIFIELD = CSIFILTK || CSICATNM || CSIRESNM || CSIDTYPS || CSIOPTS
+CSIFIELD = CSIFIELD || CSINUMEN || CSIFLD1
+
+ /********************************************************************/
+ /*  INITIALIZE AND BUILD WORK ARE OUTPUT PART OF PARAMETER LIST     */
+ /********************************************************************/
+WORKLEN = 64000                                                /*@01C*/
+DWORK = '0000FA00'X || COPIES('00'X,WORKLEN-4)                 /*@01C*/
+
+ /********************************************************************/
+ /*  INITIALIZE WORK VARIABLES                                       */
+ /********************************************************************/
+RESUME = 'Y'
+PREVNAME = ''                     /* NO PREVIOUS NAME            @01A*/
+CATNAMET = SUBSTR(' ',1,44)
+DNAMET = SUBSTR(' ',1,44)
+
+ /********************************************************************/
+ /*  SET UP LOOP FOR RESUME (IF A RESUME IS NCESSARY)                */
+ /********************************************************************/
+DO WHILE RESUME = 'Y'
+
+ /********************************************************************/
+ /*  ISSUE LINK TO CATALOG GENERIC FILTER INTERFACE                  */
+ /********************************************************************/
+ ADDRESS LINKPGM 'IGGCSI00  MODRSNRC  CSIFIELD  DWORK'
+
+ RESUME = SUBSTR(CSIFIELD,150,1)    /* GET RESUME FLAG FOR NEXT LOOP */
+ USEDLEN = C2D(SUBSTR(DWORK,9,4))   /* GET AMOUNT OF WORK AREA USED  */
+ POS1=15                            /* STARTING POSITION             */
+
+ /********************************************************************/
+ /*  PROCESS DATA RETURNED IN WORK AREA                              */
+ /********************************************************************/
+ DO WHILE POS1 < USEDLEN            /* DO UNTIL ALL DATA IS PROCESSED*/
+   IF SUBSTR(DWORK,POS1+1,1) = '0'  /* IF CATALOG, EXTRACT CATALOG   */
+    THEN DO                         /* NAME FOR LATER PRINTING   @02C*/
+         CATNAME=SUBSTR(DWORK,POS1+2,44)
+         POS1 = POS1 + 50
+         END
+  IF POS1 < USEDLEN THEN             /* IF STILL MORE DATA       @02A*/
+   DO                                /* CONTINUE WITH NEXT ENTRY @02A*/
+    DNAME = SUBSTR(DWORK,POS1+2,44)  /* GET ENTRY NAME               */
+
+ /********************************************************************/
+ /*  ASSIGN ENTRY TYPE NAME                                          */
+ /********************************************************************/
+   IF SUBSTR(DWORK,POS1+1,1) = 'C' THEN DTYPE = 'CLUSTER '
+    ELSE
+      IF SUBSTR(DWORK,POS1+1,1) = 'D' THEN DTYPE = 'DATA    '
+     ELSE
+      IF SUBSTR(DWORK,POS1+1,1) = 'I' THEN DTYPE = 'INDEX   '
+     ELSE
+      IF SUBSTR(DWORK,POS1+1,1) = 'A' THEN DTYPE = 'NONVSAM '
+     ELSE
+      IF SUBSTR(DWORK,POS1+1,1) = 'H' THEN DTYPE = 'GDS     '
+     ELSE
+      IF SUBSTR(DWORK,POS1+1,1) = 'B' THEN DTYPE = 'GDG     '
+     ELSE
+      IF SUBSTR(DWORK,POS1+1,1) = 'R' THEN DTYPE = 'PATH    '
+     ELSE
+      IF SUBSTR(DWORK,POS1+1,1) = 'G' THEN DTYPE = 'AIX     '
+     ELSE
+      IF SUBSTR(DWORK,POS1+1,1) = 'X' THEN DTYPE = 'ALIAS   '
+     ELSE
+      IF SUBSTR(DWORK,POS1+1,1) = 'U' THEN DTYPE = 'UCAT    '
+     ELSE
+       IF SUBSTR(DWORK,POS1+1,1) = 'L' THEN DTYPE = 'ATLLIB  ' /*@02A*/
+      ELSE                                                     /*@02A*/
+       IF SUBSTR(DWORK,POS1+1,1) = 'W' THEN DTYPE = 'ATLVOL  ' /*@02A*/
+      ELSE ,    /*  NO ENTRIES IN THE CATALOG - LOOK AT    */  /*@02A*/
+        ITERATE   /*  NEXT CATALOG NAME - GENERIC HLQ ONLY */  /*@02A*/
+ /********************************************************************/
+ /*  HAVE NAME AND TYPE, GET VOLSER INFO.  IF WE FOUND A VALID TYPE  */
+ /*  FOR THIS CATALOG, NOW PRINT THE CATALOG NAME (FIRST ENTRY ONLY).*/
+ /********************************************************************/
+     IF CATNAME ¬= CATNAMET THEN /* IF RESUME NAME MAY ALREADY   @02C*/
+      DO
+       CATNAMET = CATNAME                                      /*@02C*/
+      END                                                      /*@02C*/
+    POS1 = POS1 + 46
+    NUMVOL = C2D(SUBSTR(DWORK,POS1+4,2))/6 /* HOW MANY VOLSERS ?     */
+    POS2 = POS1+6                   /* POSITION ON DATA              */
+    DO I=1 TO 3                     /* ONLY CLEAR 3 VOLSER FIELDS    */
+      VOLSER.I = SUBSTR(' ',1,6)
+    END
+    DO I = 1 TO NUMVOL              /* MOVE VOLSERS TO OUTPUT FIELDS */
+      VOLSER.I = SUBSTR(DWORK,POS2,6)
+      POS2 = POS2 + 6
+    END
+     /*SAY ,*/
+    dsname=left(dname,44)
+    volser=volser.1
+    if ?realvol then do
+      if volser='******' then do
+        Call Listdsi "'"strip(dsname)"'"
+        volser=sysvolume
+      end
+    end
+    ?ok=1
+    if ?volmask then ?ok=Mask($vol,volser)
+    else if ?vol then ?ok=(volser==$vol)
+    if ?typemask then ?ok=Mask($type,dtype)
+    else if ?type then ?ok=(strip(dtype)==$type)
+    if ?catmask then ?ok=Mask($cat,catname)
+    else if ?cat then ?ok=(strip(catname)==$cat)
+    if ?ok & dtype='ALIAS' & $acat then do /* get associated catname */
+      Call XTSO "Listcat ent('"space(dsname)"') all"
+      n=$.0
+      parse value translate($.n,' ','-') with . catname .
+    end
+    if ?ok then Interpret "queue" $fields
+ /********************************************************************/
+ /*   GET POSITION OF NEXT ENTRY                                     */
+ /********************************************************************/
+    POS1 = POS1 + C2D(SUBSTR(DWORK,POS1,2))
+  END                               /* OF ROOM LEFT IN WORKAREA  @02A*/
+ END
+ IF RESUME = 'Y' &,                 /* IF WE'VE TRIED THIS ENTRY @01A*/
+  PREVNAME = DNAME THEN             /* TWICE, WE'VE GOT TO QUIT  @01A*/
+   DO                                                          /*@01A*/
+     SAY STRIP(DNAME) 'CANNOT BE PROCESSED WITH THE WORK AREA SIZE ',
+         'PROVIDED - YOU MUST INCREASE THE WORK AREA AND RETRY'
+     RETURN                                                    /*@01A*/
+   END                                                         /*@01A*/
+ PREVNAME = DNAME                   /* SAVE FOR NEXT ITERATION   @01A*/
+END
+/* end of IGGCSIRX */
+
+return 0
+
+/* PATTERN function - Performs ISPF-type pattern matching on a pair    rexx
+   of strings: 1st string is the pattern, 2nd is the data.
+   Parameters   mask,stringÝ,maskchrs¨
+   Returns   0  (false)  not matched or missing parm
+             1  (true )  match
+   Sample:  rc=RxPatMat('*EFG*','ABCDEFGH')                            */
+Mask:
+ if arg()=0 then return 0
+ parse arg msk,str,mchr
+ if arg()=1 then str=r
+ parse value word(mchr '*%',1) with mchr 1 mcm +1 mco  /* split mask chrs    */
+ parse value 1 1 length(msk) length(str) with mp sp ml sl .
+ do while mp<=ml & sp<=sl
+   select
+     when substr(msk,mp,1)=mco then,                   /* mask starts with % */
+       parse value mp+1 sp+1 with mp sp                /* bump ptrs          */
+     when substr(msk,mp)=mcm then return 1             /* match on rest      */
+     when substr(msk,mp,2)=mchr then do                /* both mask chrs     */
+       mp=mp+1
+       msp=verify(msk,mco,'n',mp+1)                    /* mak sub-str pos    */
+       if msp=0 then return (ml-mp)=(sl-sp)            /* rest mask is %s    */
+       p=verify(msk,mchr,'m',msp)
+       if p>0 then msl=p-msp
+       else msl=ml+1-msp
+       ms=substr(msk,msp,msl)                          /* mask substring     */
+       mpl=msp-mp                                      /* mask chrs len      */
+       p=pos(ms,str,sp+mpl)
+       if p=0 then return 0
+       sp=p-mpl
+     end
+     when substr(msk,mp,1)=mcm then do                 /* '*'                */
+       mp=mp+1                                         /* bump mask          */
+       p=verify(msk,mchr,'m',mp)                       /* -> end mask chr    */
+       if p=0 then return substr(msk,mp)=right(str,ml-mp+1) /* no more maskc */
+       ms=substr(msk,mp,p-mp)                          /* mask substr        */
+       msl=length(ms)
+       mp=p
+       p=pos(ms,str,sp)                                /* locate in string   */
+       if p=0 then return 0                            /* not found          */
+       sp=p+msl
+     end
+     when substr(str,sp,1)<>substr(msk,mp,1) then return 0 /* not matched    */
+     otherwise do
+       p=verify(msk,mchr,'m',mp)                       /* locate msk chr     */
+       if p=0 then return substr(msk,mp)=substr(str,sp)/* no more mask chrs  */
+       l=p-mp
+       if substr(msk,mp,l)<>substr(str,sp,l) then return 0
+       mp=mp+l
+       sp=sp+l
+     end
+   end
+ end
+ return (mp>ml & sp>sl ) | (mp=ml & substr(msk,mp)='*') /* both exhausted ?   */
+
+TransWord:
+ arg str,wrd,rep
+ p=wordpos(wrd,str)
+ if p=0 then return str
+ return strip(subword(str,1,p-1) rep subword(str,p+1))
+
+XTSO: zz=outtrap(word(arg(2) '$.',1))
+address tso arg(1);zz=outtrap('off');return rc
+
+XMsg: if arg(1)<>'' then say 'RXPICATS' arg(1);return word(arg(2) 0,1)

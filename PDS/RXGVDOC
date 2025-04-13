@@ -1,0 +1,665 @@
+REXXGBLV - REXX function - Global variable support
+
+See the PDF version at http://harders-jensen.com/wjtech/programs.html
+or in the install.lib member RXGVPDF. The WORD document is in the
+install.lib member RXGVDOCX. They must be downloaded to a PC before
+they can be opened.
+
+Build id: 078
+
+Fixed in this build
+ -  LOAD a stem (using var(name.)) TOSTACK will no longer load
+    name.0, and it will now stack in stem sequence.
+ -  Issue with RSTAT accumulated value (partly a REXXMACS issue).
+ -  Various FLAG(PAGE0) warnings.
+ -  Clear getmained storage to avoid abend S0c4 when IBMs Zero
+    Address testing is enabled.
+
+New in this build
+ None
+
+
+ *Warning - the build id is part of the id of the storage blocks, so
+ if you upgrade REXXGBLV to LPALIB then active tasks will not see
+ storage blocks created before the upgrade. You must bounce
+ long-running tasks immediately after the upgrade. This is to prevent
+ errors in case of changes to the storage block structure.
+  Future builds will only change the storage block id if a change to
+ the storage block structure has been done.
+
+ *Warning - build 063 changes the return code when no records are
+ found for load.
+
+
+Short description
+
+ REXXGBLV addresses the lack of global storage in REXX. While REXX
+ does provide some means of passing data to and retrieve data from
+ subroutines, there is no easy method for storing data for later
+ retrieval.
+
+ REXXGBLV provides a variable store external to the currently running
+ REXX program. Variables can be saved and later retrieved by the same
+ or another REXX process. The saved variables can be written to and
+ retrieved from a disk file, so can be used across logons and even be
+ shared amongst users.
+
+ The data is stored in a named pool in the home address space above
+ the 16MB border.
+
+ Any number of pools can be created, till the virtual storage runs
+ full.
+
+ The maximum length of a variable name is 240. There is no maximum
+ data length. Export and import will split the data over more records
+ if needed.
+
+ The program is re-entrant, so can be installed in LPALIB. See the
+ 'Performance' section later for other options.
+
+ Additionally, REXXGBLV can index variables, copy variables and list
+ variables (useful for debugging).
+
+
+Function call syntax
+
+ REXXGBLV must run as a function:
+       n= REXXGBLV('function parameters')
+
+ Refer to the section 'Parameter description' later for a detailed
+ description of the parameters.
+
+ Add data directly to a pool variable
+
+       ADD  VAR(name) VALUE(data) | VALVAR(varname) ÝPOOL(pool)¨
+
+       Data can be a string of max 200 characters without
+       parenthesis or other characters which can invalidate the
+       parm string. Varname is the name of a variable containing
+       the data. Use this instead of VALUE(data) if you are unsure
+       of the data or if the data length is more than 200.
+
+       If the last chars of the name are '.+' then a new stem
+       variable is created with suffix = name.0 + 1 and name.0 is
+       updated. If name.0 do not exist it is created. This is
+       intended for making a simple log feature.
+
+       See sample Add a pool variable directly .
+
+ Add (append) stack elements to a pool. For replace, use the 'Save'
+       command. See 'Save REXX stack to a pool' for details.
+
+       ADD  STAck ÝPOOL(pool)¨
+
+ Clear an entire pool and then save REXX variables to the pool
+
+       CLRSAVE VAR(name) ÝPOOL(pool)¨
+
+       This is a combined DEL * and SAVE.
+       *deprecated, use DROPSAVE instead.
+
+ Delete pool variables, then save REXX variables in the pool
+
+       CLRVSAVE VAR(name) ÝPOOL(pool)¨      *deprecated*
+       DELSAVE VAR(name) ÝDATA(mask)¨ ÝPOOL(pool)¨
+
+       This is a combined DEL VAR(name) and SAVE VAR(name).
+
+       This call will delete all pool variables matching name ,
+       then save REXX variables matching name in the pool. It can
+       be useful if you previously have stored a large stem and
+       now wish to start over with a smaller number.
+       The VAR parameter is required.
+
+ Copy pool variables
+
+       POOLCOPY POOL(from-pool) POOL2(to-pool) ÝVAR(name)¨
+
+       Copy some or all variables from one pool to another. to-pool
+       may be new. Either pool may be specified as '*' for default
+       pool.
+
+ Copy REXX variables with new name.
+
+       COPY VAR(name) DATA(mask) AS(newmame)
+
+       'name' must be generic, like MYVAR. or MYVAR* .
+       'newname' see the AS parameter below.
+
+ Delete pool variables
+
+       DEL VAR(name) ÝPOOL(pool)¨
+
+       The VAR parameter is required.
+
+ Delete pool(s)
+
+       DROP POOL(name or mask)
+
+       Releases storage.
+       Poolname is required. You cannot delete the internal pools.
+
+ Delete a pool, then save REXX variables or the stack to the pool
+
+       DROPSAVE VAR(name) | STAck ÝDATA(mask)¨ POOL(pool)
+
+       This is a combined DEL * and SAVE.
+       Poolname is required. You cannot delete the internal pools.
+
+ Export a pool to dataset
+
+       EXPORT Ý DD(fileref) | DS(dataset) ¨
+              ÝPOOL(pool)¨ ÝVAR(name)¨ ÝDATA(mask)¨
+              ÝAS(name)¨ ÝPREFIX(prefix)¨
+
+ Update pool variable(s) in an Export dataset
+
+       EXPORTU Ý DD(fileref) | DS(dataset) ¨
+               POOL(pool) ÝVAR(name)¨ ÝDATA(mask)¨
+
+ Imports file to a pool
+
+       IMPORT Ý DD(fileref) | DS(dataset) ¨ ÝPOOL(pool)¨ ÝVAR(name)¨
+              ÝAS(name)¨ ÝPREFIX(prefix)¨
+
+       File must have been created by the EXPORT/REXPORT function.
+
+ Import file to a pool, then load the pool to REXX variables
+
+       IMPLOAD Ý DD(fileref) | DS(dataset) ¨
+               ÝPOOL(pool)¨ ÝVAR(name)¨ ÝDATA(mask)¨
+              ÝAS(name)¨ ÝPREFIX(prefix)¨
+
+       This is a combination of IMPORT and LOAD.
+       File must have been created by the EXPORT/REXPORT function.
+
+ Build a REXX stem containing the names of variables in a pool
+
+       INDEX VAR(name) STEM(stem) ÝPOOL(pool)¨
+
+       Build a stem containing the names of variables in a pool
+       matching 'name'. Note the stem is built in REXX, not in
+       the pool.
+
+ List contents of a pool
+
+       LIST ÝVAR(name)¨ ÝPOOL(pool)¨ ÝLENGTH¨ ÝNW(name-width)¨
+            ÝDW(data-width)¨ ÝLISTSTEM(listname)¨ ÝALL¨
+       See the DW, NW, LENGTH and LISTSTEM operands later.
+       Use ALL to show internal variables.
+
+ List pool names
+
+       LISTPOOL POOL(name or mask)
+
+ Load pool variables or stored stack elements to REXX variables or
+ stack.
+
+       LOAD ÝVAR(name) | STAck¨ ÝDATA(mask)¨ ÝPOOL(pool)¨ ÝAS(name)¨
+            ÝTOSTack¨ ÝPREFIX(prefix)¨ ÝLISTSTEM(liststem)¨ ÝGEN0¨
+            ÝAPPEND¨
+
+       Use 'STACK' to load stored stack elements.
+       Use 'TOSTACK' to write to the stack. If you load a stem ending
+       in a dot i.e. vstem., then the name.0 is not loaded and the
+       stem is loaded in stem order. To load stem.0, you can use
+       var(name.*), which will load in variable name order.
+       REXX variables can optionally be renamed, otherwise they
+       are loaded (and replaced) with the pool variable name.
+       Use GEN0 when the AS parameter specifies a stem base to generate
+       a stem.0 variable.
+       APPEND will append the VAR(name) stored variables to the AS(name).
+       Using LISTSTEM saves a list of variables loaded, note that this is
+       only supported for a generic load.
+
+       See sample 'Save and retrieve REXX variables'.
+
+ Load pool variables to REXX, then drop the pool
+
+       LOADDROP load parameters
+
+ Load pool variables to REXX, then delete the variables from the pool
+
+       PULL 'load' parameters.
+
+       This is a combination of LOAD and DEL.
+       The VAR parameter is required.
+
+ Map the internal memory storage structure
+
+       MAP ÝXTENDED¨    XTENDED will map storage entries.
+
+       For debugging.
+
+ Return the value from a pool variable
+
+       RETURN VAR(name) ÝPOOL(pool)¨
+
+       Null is returned if the variable is null, if the variable
+       does not exist, or if the pool does not exist.
+
+ Export REXX variables directly to dataset
+
+       REXPORT VAR(name) ÝDD(fileref) | DS(dataset)¨
+               ÝAS(name)¨ ÝPREFIX(prefix)¨
+
+ Update REXX variable(s) directly in an export dataset
+
+       REXPORTU VAR(name) ÝDATA(mask)¨ ÝDD(fileref)¨
+
+ Imports REXX variables directly from file
+
+       RIMPORT ÝVAR(name)¨ ÝDATA(mask)¨ ÝDD(fileref) | DS(dataset)¨
+               ÝAS(name)¨ ÝPREFIX(prefix)¨
+
+       File must have been created by the EXPORT/REXPORT function.
+
+ Build a stem containing the names of selected REXX variables
+
+       RINDEX VAR(name) ÝDATA(mask)¨ STEM(stem) ÝDATA(mask)¨
+
+       Create a listing of the variable names matching 'var' in
+       stem 'stem'.
+
+       See sample Build a stem of REXX variable names .
+
+ List contents of REXX variables
+
+       RLIST VAR(name) ÝDATA(mask)¨ ÝLENGTH¨ ÝNW(name-width)¨ ÝDW(data-width)¨
+             ÝLISTSTEM(listname)¨
+
+       See the DW, NW, LENGTH and LISTSTEM operands later.
+       Default is to list to terminal, LISTSTEM can be used to save the list.
+
+ Save REXX variables or the stack to a pool
+
+       SAVE ÝVAR(name) | STAck¨ ÝPOOL(pool)¨ ÝDATA(mask)¨
+       ÝAS(name)¨ ÝPREFIX(prefix)¨ ÝGEN0¨
+
+       When saving the stack and the AS(name*) parameter is used, then
+       'name' is suffixed with a 6-digit right-adjusted running number,
+       number, i.e. AS(ASTAK*) is stored as ASTAK000001, ASTAK000001,
+       .., ASTAK00000n. Default name '0S*'.
+
+       When saving the stack and the AS(name.) parameter is used,
+       then stack is stored as a stem with a running number.
+       I.e. SAVE STACK AS(ASTACK.) witl generate ASTAK.1, ASTAK.2 ..
+       ASTAK.n. Note that ASTAK.0 is only generated if you use the GEN0
+       parameter.
+
+       See sample Save and retrieve REXX variables.
+
+ Save REXX variables to a pool, then export the pool to file
+
+       SAVEEXP ÝDD(fileref) | DS(dataset)¨ save-parameters
+
+       This is a combination of SAVE and EXPORT.
+
+ Index a REXX stem
+
+       STEMIX STEM(stem.) ÝDATA(mask)¨
+
+       Indexes a stem by taking the basename and putting a running
+       number as the new suffix, plus .0 of course. This is
+       intended to create an index over a stem with non-numeric
+       suffixes.
+
+       Notes - the stem is not sorted
+             - if the stem already has entries with numeric suffixes
+               they may be overwritten.
+
+       See sample Index a REXX stem .
+
+ Index a stem (old)
+
+       VARINDEX | VARIX  VAR(var) STEM(stem) ÝPOOL(pool)¨
+
+       See INDEX for parameter syntax and usage notes.
+       *deprecated, use INDEX instead*
+
+ Shows build info
+
+       VERSION
+
+       Shows build id and date/time of assembly.
+
+       sample:
+          ver=REXXGBLV('version')
+
+ Shows totals for selected variables
+
+       RSTAT VAR(var)
+
+       Sample:
+         r=RexxGblv('rlist var(i*)')
+         might return 'count 000012 dtotz 000000000121'
+
+
+Parameter description
+
+ APPEND
+  Append the VAR(name) stored variables to the AS(name) stem, which
+  must have a stem.0 variable. Only one name is allowed for VAR and AS
+  respectively. Both must be stems ending in a dot (.).
+ AS(newname)
+  Descrete variable, rename to 'as' value. Generic variables, replace
+  the 'var' prefix with the 'as' value.
+   i.e. var(KILROY.) and AS(WASHERE.) =>
+      variable KILROY.A -> WASHERE.A
+   i.e. var(KILROY.) and AS(WASHERE) =>
+      variable KILROY.A -> WASHEREA
+   It is highly recommended that you use a mask instead, this generic
+   feature may be deprecated in a later build. To use a mask to
+   replace the stem name, do AS('NEWID.'>'.'>*) .
+  Mask, using mask characters as follows:
+   %        String character is copied to the output.
+   +c       Insert character.
+   +'text'  Insert text. Maximum text length is 254.
+   -        Delete character.
+   -'text'  Delete up to, but not including, 'text'. Maximum text
+            length is 254.
+   *        Copy remainder to output (position cursor).
+   *'text'  Copy string characters from the current position to text,
+            'text' itself is not copied. Maximum text length is 254.
+            ?text?if-found?not-found? If text matches string at cursor
+            then use if-found mask, else use not-found mask. Either
+            mask may be null. ?>text?if-found?not-found? If text
+            matches string anywhere at or after cursor then use
+            if-found mask, else use not-found mask. Either mask may be
+            null. Maximum text length is 254.
+   \        The char following in the mask is copied to output, this
+            allows you to copy a mask character - i.e. \%
+   other    Mask character is copied.
+  Maximum newname length is 60. See members RXGVSAMP and RXGVIVP1 for
+  samples.
+
+ DATA(mask)
+  Data filter - when name is generic. Mask characters are * for all or
+  none, % for single. Note that the mask is case sensitive. i.e.
+  DATA(K*r*)
+
+ DD(fileref)
+  Optional fileref for export and import. Default is RXGVEXP.
+
+ DW(data-width)
+  Width of data - LIST/RLIST functions. Default=85 If specified as 0
+  then the actual data width is used.
+
+ NW(name-width)
+  Width of name - LIST/RLIST functions. Default=35 If specified as 0
+  then the actual name width is used.
+
+ LENGTH
+  Show name- and data length for LIST and RLIST.
+
+ LISTSTEM(name)
+  For LIST commands, write list to this stem instead of standard
+  output (SAY). For LOAD commands, write list of variables loaded to
+  the stem. See samples.
+
+ POOL(pool)
+  Pool name, max length=16. The name is translated to uppercase, it
+  may contain any characters, but may not begin with '-', '(' or ')'.
+  An asterix '*' can be used to specify the default pool.
+
+ STEM(name)
+  Stem name do include the dot. Maximum length is 240 bytes.
+
+ TRACE
+  Writes a lot of diagnostic info.
+
+ VALUE(data)
+  Data to store for the VAR(name) variable. Used with the ADD
+  function. Maximum length is 200 bytes, do not use parenthesis or
+  quotes.
+
+ VALVAR(name)
+  Name of variable containing data. Used with the ADD function when
+  the VALUE parameter would conflict with the syntax parser.
+
+ VAR(name | mask | list)
+  Variable name. Can contain wildcards '*' for multiple or null
+  characters and '%' for a single character. A trailing dot (.)
+  defines a stem base. Maximum length is 240 bytes. A list is a number
+  of names or masks. The list size is max 240 bytes.
+
+
+DD statements
+
+ RXGVEXP
+  Fileref for the EXPORT, IMPORT, REXPORT and RIMPORT functions.
+  RECFM=VB, LRECL should be half-track size. Make LRECL=27994 and
+  BLKSIZE=27994 and you should be ok on a 3390 (like) disk.
+  Alternative DDname can be defined by the DD operand.
+
+
+Variables set at termination
+
+ Some information is externalized through the variables below. They
+ are all returned, though most will contain zeroes.
+
+  REXXGBLV_EXPORTN  Number of entries exported to pool.
+  REXXGBLV_IMPORTN  Number of entries imported from pool.
+  REXXGBLV_MAXDL    Max data length
+  REXXGBLV_MAXNDL   Max name+data length
+  REXXGBLV_MAXNL    Max name length
+  REXXGBLV_MSG      Reason or failure message
+  REXXGBLV_RLISTN   Number of REXX variables listed.
+  REXXGBLV_RLOADN   Number of REXX variables loaded.
+  REXXGBLV_VDELN    Number of pool variables deleted.
+  REXXGBLV_VLISTN   Number of pool entries listed
+  REXXGBLV_VLOADN   Number of REXX variables loaded.
+  REXXGBLV_VSAVEN   Number of REXX variables saved.
+
+
+Principles of operation
+
+ REXXGBLV creates a storage areas and use IEANTCR services to build
+ name/token pairs to save the information for the areas. The pool name
+ can be set in the call to REXXGBLV, thus allowing a virtually
+ unlimited number of variable stores.
+
+
+Storage
+
+ -  Pool storage is obtained from storage pool 131, so it survives
+    till the TSO online- or batch session is terminated (step end)
+    unless specifically freed. All storage, except 64K used for I/O
+    operations, is requested from above the line. Using 64-bit storage
+    or data spaces has been deemed unnecessary so far.
+ -  The initial amount of storage for a pool is 1452 bytes. As the
+    pool sees activity this will of course increase, actual amount
+    depending on the number of variables saved and the combined size
+    of the stored variables.
+ -  Storage is not necessarily released when a variable is deleted.
+    Depending on internal settings storage is released or moved to
+    free queues from where it can be quickly reused. This is done as
+    an attempt to avoid excessive getmain/freemain activity.
+ -  Not all storage is released when a pool is dropped. Some basic
+    control blocks and a number of free elements are kept as an
+    attempt to avoid excessive getmain/freemain activity. The maximum
+    storage Retained for a dropped pool is currently 11K. There are 3
+    internal pools so assuming one user pool has been created used and
+    dropped, the storage retained would be 44K.
+
+
+Samples
+
+ Save and retrieve REXX variables
+
+   parse value 'Kilroy was here'  with p1 p2 p3
+   cc=  REXXGBLV('save pool(p1) var(p*)')
+   say  'List pool.....'
+   cc=  REXXGBLV('list pool(p1)') /* list stored */
+   say  'List actual...'
+   cc=  REXXGBLV('rlist var(p*)') /* list actual */
+   p1=  'The president'
+   say  'List actual after setting P1'
+   cc=  REXXGBLV('rlist var(p*)') /* list actual */
+   cc=  REXXGBLV('load pool(p1)') /* reload */
+   say  'List actual after reload'
+   cc=  REXXGBLV('rlist var(p*)') /* list actual */
+
+  Displays
+
+   List pool.....
+   P1                       Kilroy
+   P2                       was
+   P3                       here # of records listed:
+                            00000003 List actual...
+   P1                       Kilroy
+   P3                       here
+   P2                       was List actual after setting
+                            P1
+   P1                       The president
+   P3                       here
+   P2                       was List actual after reload
+   P1                       Kilroy
+   P3                       here
+   P2                       was
+
+  Note that REXX variables are not necessarily shown in alphabetical
+  order.
+
+ Save the stack as a stem with the .0 added
+        queue 'kilroy'
+        queue 'was'
+        queue 'here'
+        cc=rexxgblv('save stack pool(tt) as(stk.) gen0') "delstack"
+        cc=rexxgblv('list pool(tt)')
+
+   Shows:
+        Pool name TT
+        STK.0                    00000003
+        STK.1                    kilroy
+        STK.2                    was
+        STK.3                    here
+        # of records listed:     00000004
+
+ Add a pool variable directly
+
+  Callers code:
+        cc=  RexxGblv( del var(log.) )
+        /*or  cc=RexxGblv( add var(log.0) value(0) ) */
+        Call Sub1
+        cc=  RexxGblv('load var(log.)')
+        do n=1 to log.0
+          say log.n
+        end
+
+  Sub1 code:
+        cc=RexxGblv( add var(log.+) value( time()  Program started) )
+          .. some code ..
+        cc=RexxGblv( add var(log.+) value( time()  Program ended) ) Return
+                                              0
+
+  Will show something like this:
+   15:24:33  Program started 15:24:34 Program ended
+
+ Save using multiple names and masks
+
+   cc=RexxGblv('save var(key. data.) pool(vssave)')
+
+ Export and import directly to/from file
+
+  Fileref
+    //RXGVEXP  DD RECFM=VB,LRECL=27994,SPACE=(TRK,(5,5)),UNIT=SYSDA,..
+
+  Program
+        Alpha    = 'Letter nr 01'
+        Charlie  = 'Letter nr 03'
+        India    = 'Letter nr 09'
+        Juliet   = 'Letter nr 10'
+        Romeo    = 'Letter nr 18'
+        Sierra   = 'Letter nr 19'
+        Tango    = 'Letter nr 20'
+        Zulu     = 'Letter nr 26'
+        cc=RexxGblv('rexport var(*ie*)')
+        say REXXGBLV_EXPORTN+0 'variables exported'
+        drop alpha charlie india juliet romeo sierra tango zulu
+        say  alpha charlie india juliet romeo sierra tango zulu
+        cc=RexxGblv('rimport var(*lie*)')
+        say REXXGBLV_IMPORTN+0 'variables imported'
+        say  alpha charlie india juliet romeo sierra tango zulu
+        cc=RexxGblv('rimport')
+        say REXXGBLV_IMPORTN+0 'variables imported'
+        say  alpha charlie india juliet romeo sierra tango zulu
+
+   Shows
+        3 variables exported
+        ALPHA CHARLIE INDIA JULIET ROMEO SIERRA TANGO ZULU
+        2 variables imported
+        ALPHA Letter nr 03 INDIA Letter nr 10 ROMEO SIERRA TANGO ZULU
+        3 variables imported
+        ALPHA Letter nr 03 INDIA Letter nr 10 ROMEO Letter nr 19 TANGO ZULU
+
+ Build a stem of REXX variable names
+
+        data.0   = 'zero'
+        dataf    = 'sixth letter in the alphabet'
+        foxtrot  = 'foxtrot is a dance'
+        datad    = 'delta'
+        faulty   = 'Faulty Towers'
+        function = 'test filter'
+        cc=REXXGBLV('rindex var(f*t*) stem(filter.)')
+
+  Creates
+
+        FILTER.0 = '00000003'
+        FILTER.1 = 'FAULTY'
+        FILTER.2 = 'FUNCTION'
+        FILTER.3 = 'FOXTROT'
+
+ Index a REXX stem
+
+        CAR.BMW   = 'german car make'
+        CAR.FORD  = 'USA car make'
+        CAR.MAZDA = 'japanese car make'
+        cc=RexxGblv('stemix stem(car.)')
+
+  Creates
+
+        CAR.0  = '00000003'
+        CAR.1  = 'BMW'
+        CAR.2  = 'MAZDA'
+        CAR.3  = 'FORD'
+
+ Load variables, use the liststem and VALUE function to retrieve data.
+
+        cc=RexxGblv('load pool(T071) var(*li* *el*) liststem(lst.)')
+        do n=1 to lst.0
+          say 'lst.'n left(lst.n,12) '->' value(lst.n)
+        end
+
+ See member RXGVSAMP for more samples.
+
+
+Installation
+
+ Member REXXGBLV contains the source and JCL to assemble/link, and an
+ IVP step.
+
+ Check the 'Local customization' section at the beginning of the
+ source. You can use member RXGVCUST for local customization
+ overrides. If you use that member, then you should copy it to a local
+ library and put the name of that library in front of the assembly
+ SYSLIB concatenation for future upgrades.
+
+
+Initial verification
+
+ The REXXGBLV member contains an IVP step at the end, but you can
+ also run IVPs youself. See members RXGVIVP$ (JCL) and RXGVIVP
+ (program). The IVP job can also be used for samples, but the RXGVSAMP
+ member is probably more readable.
+
+
+Performance
+
+ REXXGBLV is fully reentrant, so can reside in LPALIB or linklist.
+ LPALIB is recommended. The program can be made to remain in JPAQ if
+ run from JOBLIB or STEPLIB - or in other words there will be only one
+ program load done for the entire session. See the 'Local
+ customization' section at the beginning of the source for how to
+ control this feature.
+

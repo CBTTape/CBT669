@@ -1,0 +1,3598 @@
+//RXRV012  JOB (1),'REXXVARS-V012',
+//* RESTART=IVP1,
+//         CLASS=A,COND=(0,LT)
+/* JOBPARM L=99999
+//*
+//* REXX function, Various utility functions for REXX variables
+//*
+//  SET IVP=IVPT
+//  SET IVP=I012
+//  SET IVP=IVP1
+//*
+//A       EXEC ASMACL, XL,MACLIST=REXXVARS,
+//          PARM.C='TERM,RENT',
+//          PARM.L='RENT,REUS,LIST,RMODE(ANY),AMODE(31)'
+//C.SYSLIB  DD DISP=SHR,DSN=CBT669.PP.REXXVARS.LIB
+//          DD DISP=SHR,DSN=SYS1.MACLIB
+//          DD DISP=SHR,DSN=SYS1.MODGEN
+//C.SYSTERM DD SYSOUT=*
+//C.SYSIN   DD *
+**asma syslib *
+**asma opt term
+         gblc  &@modnm,&build
+*
+* Build: 012
+&build   setc  '012.6'
+*
+* Fixes in this build
+*  External sort rewritten to allow DFSPARM overrides.
+*
+* Changes in this build
+*  2024-11-28  Start new build
+*  2024-12-03  New syntax for STEM2TBL and TBL2STEM - STEM(n) instead
+*              of VAR(n) and STEM(n) without trailing #.
+*  2024-12-03  STEM(stemname.) may now be used instead of
+*              VAR(varname.#) in most commands.
+*  2024-12-03  LIST STACK
+*  2024-12-05  SORT can now handle override file DFSPARM.
+*  2024-12-06  SORT can now use a stem for DFSPARM.
+*  2024-12-06  SORT FIELDS(COPY)
+*
+* See the RXRVHIST member for earlier changes
+*
+* Syntax
+*
+*  rc = REXXVARS(command-string)
+*       command-string:
+*        BROWSE    VAR(varlist) PANEL(panel)
+*        COPY      VAR(varlist) | STack
+*                  AS(newnamemask or stemname) | TOStack
+*                  ÝONData(mask)¨
+*                  ÝCOUNT(countn)¨ ÝLAST(lastn)¨ ÝSKIP(skipn)¨
+*        EDIT      VAR(varlist) PANEL(panel) ÝSHow(show)¨
+*        DROP      VAR(varlist)
+*        INDEX     VAR(varlist) AS(stemname) ÝALL¨
+*        LIST      VAR(varlist) ÝONData(mask)¨ ÝNW(namewidth)¨
+*                  ÝLW(listwidth)¨ ÝHDR(hdrtext)¨ ÝSHow(show)¨
+*                  ÝCOUNT(countn)¨ ÝLAST(lastn)¨ ÝSKIP(skipn)¨
+*        RENAME    VAR(varlist) AS(newnamemask)
+*        SORT      STEM(stemname) ÝAS(stemname)¨
+*                  ÝFIELDS(sort-fields)¨ ÝDFSPARM(dfspstem)¨
+*                  ÝONData(mask)¨ ÝNODUP¨
+*                  ÝDescending¨ ÝMODE(E|I)¨
+*        STEM2TBL  STEM(stemname) | STack TABLE(table) VAR(varname)
+*        TBL2STEM  TABLE(table) VAR(varname) STEM(stemname) | TOStack
+*        VERSION
+*        VIEW      VAR(varlist) PANEL(panel) ÝSHow(show)¨
+*
+*  Parameter descriptions
+*
+*   ALL               Index, process stem records with numeric suffix.
+*   countn            Number of records, variables or stack, to process
+*                     after skipping skipn records.
+*   descending        Sort descending.
+*   dfspstem          Name of stem containing DFSPARM input. The
+*                     contents must adhere to the restrictions for the
+*                     DFSPARM dataset. See the documentation for SORT
+*                     command in the RXRVDOC member.
+*   hdrtext           list, text to use instead if default. HDR(NO)
+*                     will suppress header.
+*   lastn             Process only the lastn number of variables.
+*   listwidth         List, width of list. Default is 80.
+*   mode              Force sort mode External or Internal.
+*   namewidth         List, width of name column. Default is 30.
+*   newnamemask       Mask for renaming variable(s), see the RXRVDOC
+*                     member for details.
+*   panel             ISPF panel name.
+*                     Default for browse is ISPBROBA.
+*                       -      -  edit is standard edit panel.
+*                       -      -  view is standard view panel.
+*   show              LEN, show lengths of name and data in the list.
+*                     The 4-byte name length field is taken from the
+*                     nam,e width value.
+*                     S0 - show stem.0 when listing numeric stem.
+*                     SELF - for edit and view show own variables
+*                     REXXVARS_*, Default is to suppress.
+*                     All the SHOW options can be set together.
+*   skipn             Number of records, variables or stack, to skip
+*                     before processing.
+*   sort-fields       One or more quadlets, specified as with normal
+*                     DFSORT: pos,length,type,direction i.e. 2,20,CH,A
+*                     Default is length of longest variable.
+*   table             ISPF table name.
+*   STack             read from the stack.
+*   stemname          stemname including trailing dot.
+*   TOStack           write to the stack instead of a stem.
+*   varlist
+*     One or more variable names or masks as follows
+*     descrete        name without any generic chars, i.e. DATE
+*     numstem         stemname ending with .#, i.e. TEXT.# - stem.0
+*                     must contain the number of stem variables.
+*     mask            name is a mask, see member RXRVDOC for details.
+*     genstem         stemname including trailing dot, functionally
+*                     equivalent to the mask stem.*
+*   varname           descrete variable name
+*
+*  Return codes       0  all ok
+*                     4  process error, i.e. null input
+*                     8  error
+*
+*
+* Special variables created
+*  REXXVARS_GETN    number of variables read.
+*  REXXVARS_OUTN    number of variables written.
+*  REXXVARS_RSN     reason if rc gt 0
+*  REXXVARS_STAT    various statistics, currently in the format:
+*                    NMAXL(nmaxl) DMAXL(dmaxl)
+*                    NAMEN(namen) GETN(getn) OUTN(outn) SORT(sm)
+*                    CMN(cmn)
+*                    where
+*                     nmaxl  = maximum name length
+*                     dmaxl  = maximum data length
+*                     namen  = number of names selected
+*                     getn   = numer of variables read passing data-
+*                              and other filters.
+*                     outn   = number of variables written, including
+*                              dynamically created stem.0 for index.
+*                     sm     = sort mode Fast or Normal.
+*                     cmn    = internal sort, the number of compares
+*                              done.
+*
+*
+* Installation notes
+*
+*  The program will by default reload itself thus retaining the module
+*  in the JPAQ. This improves performance for multiple calls
+*  significantly. This load will not be done if the program is added to
+*  the LPA, which is the recommended placement.
+*  You can disable the self-load option by changing the SETB to 0 for
+*  &CDEUCTZ2 below.
+*
+*  Change the variable &sortcut to change the number of input records
+*  when cutover to external sort. Default is 5000, a number which is
+*  determined by trial-and-error. But your milage might be different.
+*
+*  Change the variable &$condsect to 'Hide' will suppress all trace
+*  blocks. This will reduce the program size by about a third, but
+*  does not seem to have a significant bearing on the performance.
+*
+* Author
+*  Willy Jensen
+*  mail: willy@harders-jensen.com
+*  web : http://harders-jensen.com om  (newest version here)
+*-
+
+*- set some defaults
+         lcla  &storsz,&sortcut,&namedfn
+&@modnm  setc  'REXXVARS'
+&storsz  seta  16*1024
+&sortcut seta  5000                    sort cutover # records
+&namedfn seta  16
+         gblc  &$condsect
+&$condsect setc 'Show'
+&CDEUCTZ2  setb 1                      module stays in memory
+&CDEUCTZ2  setb 0                      module do not stay in memory
+*-
+         print off
+         Copy  WSAMMACS
+         Copy  REXXMACS
+         Copy  ISPXMACs
+         Copy  SYSMACS
+         Copy  RXRVMACS
+         print on
+*-
+DbfrMap  dsect
+dbfrsz   ds    a
+dpfrpfl  equ   *-dbfrmap
+dbfrdata ds    0c
+*-
+         #subr set,entry=csect,saend=sapooln,base=r11  ,rcfield=rc
+*-
+* Start module
+*-
+&@modnm  #module base=(r12),sa=sa1,work=(lclstorl,lclstor,r10,C),      c
+               text='&build',xepilog=epilog
+         mvc   logr,blank
+         mvc   reason,blank
+         clear function
+         mvi   a1+3,1
+         zap   p0,=p'0'
+         zap   p1,=p'1'
+         zap   sanum,p0
+         zap   namenum,p0
+         zap   getnum,p0
+         zap   delnum,p0
+         zap   outnum,p0
+         zap   stackcnt,p0
+
+         aif   (&CDEUCTZ2 eq 0).CDEUCTZ2n
+*-
+* Make sure module stays in memory
+*-
+         CDEUCTZ2 wto=N
+.CDEUCTZ2n anop
+
+*-
+* init REXX interface
+*-
+         ereg  0,1
+         RxInit parmvect=(dw,1)
+*
+         if    (zrx_r0,eq,zero)        no rexx envblock foun d
+           Tsoputln 'Not in REXX'
+           #module exit,rc=24
+         endif
+
+         #subr call,Prolog
+         if    (ltr,r5,r15,nz)
+           #module exit,rc=(r5)
+         endif
+*-
+* Select function
+*-
+         trcblk
+         Strmake logr,'func=',function
+         trclog ,
+         trcblke
+         if    (=c'VERSION',eq,function)
+           la    r1,verstxt
+           la    r2,l'verstxt
+           stm   r1,r2,retval
+           #module end
+         endif
+* some further general validation
+*        if    (cli,pname_dl,eq,0)
+*          reason 'Missing VAR',8,t
+*          #module end
+*        endif
+* check invalid conditions
+         if    (cli,stack,eq,c'Y')
+* not all commands can handle the stack
+           if     (=c'STEM2TBL',eq,function),                          c
+               or,(=c'TBL2STEM',eq,function),                          c
+               or,(=c'COPY',eq,function),                              c
+               or,(=c'EDIT',eq,function),                              c
+               or,(=c'LIST',eq,function),                              c
+               or,(=c'VIEW',eq,function),                              c
+               or,(=c'BROWSE',eq,function),                            c
+               or,(=c'SORT',eq,function)
+           else
+             reason 'Stack is not a valid option',8,t
+             #module end
+           endif
+* get stack count
+           RxStack queued                r1 = count
+           st    r1,stackqn              save binary
+           cvd   r1,dw
+           mvc   stackcnt,dw+4           save decimal
+           trcblk
+           strmake logr,'stackcnt=',(stackcnt,4,p2n),lr=r2
+           trclog  ,(r2)
+           trcblke
+         endif
+* get number of words in varname
+         StrWords pname,b.pname_dl
+         stc   r15,pnamecnt
+         lr    r2,r15
+         if    (cfi,r2,gt,&namedfn)
+           Reason 'Too many names',8,t
+           #module end
+         endif
+* set newname options
+         if    (cli,pnewname_dl,ne,0)
+           la    r1,pnewname
+           llc   r0,pnewname_dl
+           la    r15,newnmopt
+           mvc   fw,=c'newn'
+           #subr Call,SetVopt
+           stc   r0,pnewname_dl        possible modified length
+         endif
+* set name options if just one name
+         if    (cli,pnamecnt,eq,1)
+           la    r1,pname
+           llc   r0,pname_dl
+           la    r15,nameopts
+           mvc   fw,=c'name'
+           #subr Call,SetVopt
+         endif
+* set SHOW SELF if not EDIT or VIEW
+         if    (=c'EDIT ',eq,function),or,(=c'VIEW ',eq,function)
+         else
+           oi    pgmopts,o_listself
+         endif
+*
+         GetStor sz=32756,dp=dbfr1a
+
+* call processor
+         Select
+           when  (=c'LIST ',eq,function),and,(cli,stack,eq,c'Y')
+             #subr call,ListStck
+           when  (=c'LIST ',eq,function)
+             #subr call,List
+           when  (=c'STEM2TBL',eq,function)
+             #subr call,Stem2Tbl
+           when  (=c'TBL2STEM',eq,function)
+             #subr call,Tbl2Stem
+           when  (=c'COPY ',eq,function)
+             #subr call,Copy
+           when  (=c'INDEX ',eq,function)
+             #subr call,Index
+           when  (=c'SORT ',eq,function)
+             #subr call,Sort
+           when  (=c'EDIT ',eq,function)
+             #subr call,Edit
+           when  (=c'VIEW ',eq,function)
+             #subr call,View
+           when  (=c'BROWSE ',eq,function)
+             #subr call,Browse
+           when  (=c'DROP ',eq,function)
+             #subr call,Drop
+           when  (=c'RENAME ',eq,function)
+             #subr call,Copy
+           when  other
+             Reason 'Invalid function',8,t
+         Endselect
+         if    (ltr,r15,r15,nz),and,(rc,eq,zero)
+            mvi   rc+l'rc-1,8
+         endif
+*-
+         if    (stkianchr,ne,zero)
+           SLNKLST dropall,first=f.stkianchr
+         endif
+*-
+         #module end
+
+*-
+* Inline data
+*-
+         gblc  &$sclock
+         Macro
+         SClock
+         gblc  &$sclock
+&$sclock setc  '&sysclock'(1,19)
+         Mend
+         SClock
+verstxt  dc    c'REXXVARS &build &$sclock'
+blank    dc    cl150' '
+emprmerr dc    c'Parameter error'
+emreqmis dc    c'Required parameter missing'
+emmutexc dc    c'Mutually exclusive parameters'
+DumpBlkT TrTable all
+         ltorg
+
+*-
+* Prolog - parse parameters
+*-
+Prolog   #subr
+         mvc   pname(l'blank),blank
+         mvc   pnewname(l'blank),blank
+         mvc   pstem(l'blank),blank
+         mvc   isptbl,blank
+         clear wrk1k,256               circumvention
+         lm    r2,r3,dw                 for
+         bctr  r3,0                      single-chr
+         j     *+10                       at
+         mvc   wrk1k(*-*),0(r2)            end
+         ex    r3,*-6                       of string
+         StrParse (wrk1k,250),                                         c
+               (#p,function,l=10,c=u),            1st pos = function   c
+               (all,all,l=1,c=u),                                      c
+               (append,append,l=1,c=u,a=2),                            c
+               (as,pnewname,l=200,c=u,q=k),                            c
+               (count,pcount,l=8,a=2),                                 c
+               (descending,descnd,l=1,c=u,a=1),                        c
+               (fields,pfields,l=60,c=u,a=2),                          c
+               (hdr,hdr,l=80),                                         c
+               (last,plast,l=8,a=2),                                   c
+               (lwidth,lwidth,l=6,a=2),                                c
+               (macro,macro,l=8,c=u),                                  c
+               (mode,pmode,l=1,c=u),                                   c
+               (nodup,nodup,l=1,c=u,a=3),                              c
+               (nwidth,nwidth,l=6,a=2),                                c
+               (ondata,ondata,l=80,a=3),                               c
+               (panel,panel,l=8,c=u),                                  c
+               (renumber,renum,l=1,c=u,a=5),                           c
+               (show,show,l=20,c=u,a=2),                               c
+               (skip,pskip,l=8,a=2),                                   c
+               (stack,stack,l=1,c=u,a=2),                              c
+               (stem,pstem,l=120,c=u),                                 c
+               (spill1,spill1,l=4),    make room for stem nr           c
+               (dfsparm,pdfsparm,l=120,c=u),                           c
+               (spill2,spill2,l=4),    make room for stem nr           c
+               (table,isptbl,l=8,c=u,a=3),                             c
+               (tblvar,tblvar,l=8,c=u),                                c
+               (to,ptoname,l=120,c=u,q=k),                             c
+               (tostack,tostack,l=1,c=u,a=3),                          c
+               (varname,pname,l=200,c=u,a=3,q=k),                      c
+               (spill3,spill3,l=4),    make room for stem nr           c
+               (trace,trace,l=1,c=u),                                  c
+               msg=logr,pp=#p,align=f,build=Y
+         if    (ltr,r5,r15,nz)
+*          Reason  emprmerr,8
+           mvc   reason,logr
+           strlen str=logr
+           st    r15,reasonl
+           #subr exit,rc=8
+         endif
+         if    (cli,function_dl,eq,0)
+           Reason 'Null parm',8,t
+           #subr exit,rc=8
+         endif
+
+* Shuffle some parameters for some functions. Clumsy, but neccessary to
+* do here to cater for the checks being done in the preprocess section.
+         if    (cli,pstem_dl,ne,0),and,(cli,pname_dl,eq,0)
+           mvc   pname_dl(l'pstem+1),pstem_dl
+           llc   r15,pstem_dl
+           la    r14,pname(r15)
+           mvi   0(r14),c'#'                  set num-stem
+           la    r15,1(,r15)
+           stc   r15,pname_dl
+           lr    r2,r15
+           mvi   pstem_dl,0
+         endif
+*
+         la    r1,80
+         if    (cli,lwidth_dl,ne,0)
+           strtest str=(lwidth,b.lwidth_dl),test=num
+           if    (nz)
+             Reason 'Bad lwidth',8,t
+             #subr exit,rc=8
+           endif
+           strd2p from=(lwidth,b.lwidth_dl),to=dw
+           cvb   r1,dw
+         endif
+         sth   r1,linewdth
+*
+         if    (cli,pcount_dl,ne,0)
+           StrD2C from=(pcount,b.pcount_dl),to=count
+           counter count,1
+         endif
+         if    (cli,pskip_dl,ne,0)
+           StrD2C from=(pskip,b.pskip_dl),to=skip
+           counter skip,1
+         endif
+         if    (cli,plast_dl,ne,0)
+           StrD2C from=(plast,b.plast_dl),to=last
+         endif
+*
+         if    (cli,nwidth_dl,ne,0)  forced width ?
+*          if    (=c'EDIT',eq,function)
+*            reason 'NWIDTH is not a valid option',8,t
+*            #subr  exit
+*          endif
+           if    (cli,nwidth,ne,c'*') use specific ?
+             strd2p from=(nwidth,b.nwidth_dl),to=dw
+             cvb   r1,dw
+             st    r1,nwidthv
+           endif
+         endif
+*
+
+         StrWords show,b.show_dl
+         lr    r5,r15
+         do    over(r5)
+*          r0 = length, r1 = pos
+           StrWord show,b.show_dl,(r5)
+           if    (=c'LEN',eq,0(r1)),then=(oi,pgmopts,o_listlen)
+           if    (=c'SELF',eq,0(r1)),then=(oi,pgmopts,o_listself)
+           if    (=c'S0',eq,0(r1)),then=(oi,pgmopts,o_lists0)
+         enddo
+
+* some logging
+         trcblk
+         st    r12,dw
+         st    r10,dw+4
+         strmake logr,'epa=',(dw,4,c2x),+1,'lcs=',(dw+4,4,c2x)
+         trclog ,
+         trcblke
+*
+         #subr  exit
+         ltorg
+         #subr  drop
+
+*-
+* Backend
+*-
+Epilog   #subr
+         if    (zrx_r0,eq,zero)        no rexx
+           #subr exit,rc=24            then nothing to do
+         endif
+
+* if numstem then make stem.0
+         if    (tm,newnmopt,o_numstem,o),and,(cli,tostack,ne,c'Y')
+           trclog 'Epilog write stem.0'
+           unpk  dw,outnum
+           oi    dw+7,x'f0'
+           strmake wrkname,(pnewname,b.pnewname_dl),'0',lr=r2
+           #subr call,RxPutx,parm=(wrkname,(r2),dw,l'dw),pl=exitpl
+           ap    outnum,p1
+         endif
+
+*- release storage
+         if   (cli,trace,eq,c'Y'),then=(Call,DumpVLBS) dump storage
+         if   (lt,r2,vlblkfa,nz)       -> 1st storage area
+           using VLBBblok,r2
+           do    forever
+             l    r4,VLBBnext
+             trcblk
+             st    r2,fw
+             strmake logr,'vlbb-free ',(fw,4,c2x)
+             trclog ,
+             trcblke
+             STORAGE RELEASE,LENGTH=&storsz,addr=(r2)
+             if    (ltr,r4,r4,z),then=leave
+             lr    r2,r4               -> next
+           enddo
+           drop  r2
+         endif
+         RelStor dp=dbfr1a             drop buffer
+         RelStor dp=dbfr2a             drop buffer
+
+*- set stat vars
+         macro
+         putstat &@modnm,&pfld
+         lclc  &s
+         unpk  dw,&pfld
+         oi    dw+7,x'f0'
+&s       setc  Upper('&@modnm')
+         RxVPut name='REXXVARS_&s',data=dw
+         Mend
+         Putstat getn,getnum
+         Putstat outn,outnum
+*- status
+         Strmake wrk1k,                                                c
+               'NMAXL(',(namemaxl,4,c2n,4),                            c
+               ') DMAXL(',(datamaxl,4,c2n,8),                          c
+               ') DTSZ(',(datatsz,4,c2n,8),                            c
+               ') NAMEN(',(namenum,4,p2n,8),                           c
+               ') GETN(',(getnum,4,p2n,8),                             c
+               ') OUTN(',(outnum,4,p2n,8),                             c
+               ') DELN(',(delnum,4,p2n,8),                             c
+               ') CMN(',(dclcc,4,c2n,8),                               c
+               reg=r3
+         if (cli,sortmode,ne,0)
+           strmake ((r3)),') SORT(',sortmode,reg=r3
+         endif
+         strmake ((r3)),') ',reg=r3
+         la    r1,wrk1k
+         sr    r3,r1
+         RxVPut name='REXXVARS_STAT',data=(wrk1k,(r3))
+*- reason
+         if    (icm,r5,15,reasonl,nz)
+           la    r4,reason
+         else
+           la    r4,=c' '
+           la    r5,1
+         endif
+         RxVPut name='REXXVARS_RSN',data=((r4),(r5))
+*- retval
+         if     (icm,r4,15,retval,nz)        -> text
+           l     r5,retval+4                 text length
+         else
+           l     r15,rc
+           StrR2D reg=r15,to=(dw,8)
+           la    r4,dw                       -> text
+           la    r5,8                        text length
+         endif
+         trcblk
+         strmake logr,'Epilog retval ',((r4),(r5)),lenreg=r3
+         trclog  ,
+         trcblke
+         RxRetval (r4),(r5)
+         #subr exit,rc=0
+         ltorg
+         #subr  drop
+
+*-
+* LIST variables
+*-
+LIST     #subr xprolog=SubrProl,xepilog=SubrEpil
+* check required parameters
+         if    (cli,pname_dl,eq,0)
+           reason emreqmis,8,t
+           #subr  exit,rc=8
+         endif
+
+*- header
+         if    (cli,hdr_dl,ne,0)
+           mvc   fw(2),hdr
+           oc    fw(2),blank
+           if    (=c'NO',eq,fw)
+             sr    r2,r2
+           else
+             la    r2,hdr
+             llc   r3,hdr_dl
+           endif
+         else
+           Strmake logr,'Listing ',(pname,b.pname_dl,,100),lr=r3
+           la    r2,logr
+         endif
+         if    (ltr,r2,r2,nz)
+           RxSay (r2),(r3)
+         endif
+         clear logr
+*- load and process
+         #subr call,MKVNL
+         if    (nz),then=(#subrend,(r15))
+         if    (cp,namenum,eq,p0)
+           mvlit reason,'No entries for list'
+           rxsay 'No entries for list'
+           mvi   rc+3,4
+           #subr exit
+         endif
+         if    (cli,trace,eq,c'Y'),then=(Call,DumpVLBS) dump storage
+         GetStor sz=f.datamaxl,dp=dbfr1a
+*- set column defs
+         if    (cli,nwidth,eq,c'*')    use actual max width
+*          l     r2,namemaxl
+           l     r2,nlstmaxw
+           if    (cfi,r2,gt,30),then=(la,r2,30)
+         else  ,                       use explicit or default
+           la    r2,30
+           if    (cli,nwidth_dl,ne,0)
+             strd2p from=(nwidth,b.nwidth_dl),to=dw
+             cvb   r2,dw
+           endif
+         endif
+         stcm  r2,15,nwidth
+*- list
+         using vlbeblok,r4
+         la    r4,nlstfrst-(vlbenext-vlbeblok)
+         do    while,(icm,r4,15,VLBEnext,nz)
+           #subr call,RxGet,                                           c
+               parm=(vlbename,b.vlbelen,f.dbfr1a,f.dbfr1l),pl=exitpl
+           lr    r5,r15
+           if    (ltr,r5,r5,nz),then=iterate
+           lr    r5,r0                  data length
+           clear wrk1k,256
+           la    r8,wrk1k
+           if    (tm,pgmopts,o_listlen,o)
+             strmake wrk1k,(vlbelen,1,c2d,3),+1,reg=r8
+           endif
+           icm   r2,15,nwidth
+           strmake ((r8)),(vlbename,b.vlbelen,,(r2))
+           la    r8,wrk1k+1(r2)
+           if    (tm,pgmopts,o_listlen,o)
+             strmake ((r8)),(r5,,cvdr,6),+1,reg=r8
+           endif
+           la    r2,wrk1k
+           lr    r3,r8
+           sr    r3,r2                  used length
+           lh    r2,linewdth            max length
+           sr    r2,r3                  rest length
+           l     r6,dbfr1a
+           ahi   r6,4
+           strmake ((r8)),((r6),(r5),,(r2)),reg=r3
+           la    r2,wrk1k
+           sr    r3,r2
+           RxSay wrk1k,(r3)
+           ap    outnum,p1
+           clear wrk1k,256
+         enddo
+         drop  r4
+*- end
+         #subr exit
+         #subr drop
+
+*-
+* LIST stack
+*-
+LISTSTCK #subr xprolog=SubrProl,xepilog=SubrEpil
+
+*- header
+         Strmake logr,'List the stack',lr=r2
+         RxSay logr,(r2)
+         clear logr
+*- list
+         l     r7,stackqn
+         do    over(r7)
+*          read stack entry
+           RxStack pull
+           if    (ltr,r2,r15,nz)
+             StrMake reason,'Stack get rc ',(r2,,c2dr,8)
+             mvi   rc+3,8
+             #subr exit
+           endif
+           lr    r3,r0                 r0 = data length
+           lr    r4,r1                 r1 = data address
+*
+           trcblk
+           lh    r5,linewdth
+           strmake wrk1k,lr=r2,'size=',(r3,,c2dr,6),                   c
+               ' data=',((r4),(r3),,(r5))
+           RxSay wrk1k,(r2)
+           trcblke
+*          filter by data ?
+           sr    r15,r15
+           if    (cli,ondata_dl,ne,0)
+             STRPATRN data=((r4),(r3)),mask=(ondata,b.ondata_dl)
+           endif
+*
+           if    (ltr,r15,r15,z)
+             lh    r5,linewdth
+             if    (cfi,r5,gt,120),then=(la,r5,120)
+             if    (cr,r5,gt,r3),then=(lr,r5,r3)
+             RxSay (r4),(r5)
+           endif
+*          re-stack
+           RxStack queue,data=((r4),(r3))
+           if    (ltr,r2,r15,nz)
+             StrMake reason,'Stack put rc ',(r2,,c2dr,8)
+             mvi   rc+3,8
+             #subr exit
+           endif
+           ap    outnum,p1
+         enddo
+*- end
+         #subr exit
+         #subr drop
+
+*-
+* Copy
+*-
+COPY     #subr xprolog=SubrProl,xepilog=SubrEpil
+
+* check required parameters
+         la    r1,1
+         if    (cli,pname,eq,0),and,(cli,stack,ne,c'Y'),then=(sr,r1,r1)
+         if    (cli,pnewname,eq,0),and,(cli,tostack,ne,c'Y'),          c
+               then=(sr,r1,r1)
+         if    (ltr,r1,r1,z)
+           reason emreqmis,8,t
+           #subr  exit,rc=8
+         endif
+* as(stem.) = as(stem.#) if var(stem.#)
+         if    (cli,pnamecnt,eq,1),                                    c
+               and,(tm,nameopts,o_numstem,o),                          c
+               and,(tm,newnmopt,o_genstem,o)
+           ni    newnmopt,255-o_genstem
+           oi    newnmopt,o_numstem
+         endif
+         if    (cli,tostack,ne,c'Y')
+           if    (tm,newnmopt,o_maskvar+o_numstem+o_descvar,z)
+             reason 'Bad newname type',8,t
+             #subr exit
+           endif
+           trcblk
+           strmake logr,'newmame opt=',(newnmopt,1,c2x)
+           trclog ,
+           trcblke
+         endif
+* init
+         #subr call,MKVNL
+         if    (nz),then=(#subrend,(r15))
+         trclog ,
+         if    (cli,trace,eq,c'Y'),then=(Call,DumpVLBS) dump storage
+         if    (tm,nameopts,o_descvar,o),                              c
+               and,(tm,newnmopt,o_descvar,z)
+           reason 'Mixed descrete vartype',8,t
+           #subr exit
+         endif
+         GetStor sz=f.datamaxl,dp=dbfr1a
+* determine if output is a numstem too
+         if    (tm,nameopts,o_numstem,o),                              c
+               and,(tm,newnmopt,o_maskvar,o)
+           trcblk
+           strmake logr,'test numstemout "',(pname,b.pname_dl),        c
+               '" by "',(pnewname,b.pnewname_dl),'"'
+           trclog ,
+           trcblke
+           StrByMsk string=(pname,b.pname_dl),                         c
+               mask=(pnewname,b.pnewname_dl),                          c
+               out=wrkname,pl=wrk1k,print=off
+           lr    r7,r0                 copy length
+           trcblk
+           strmake logr,'=> "',(wrkname,(r7)),'"'
+           trclog ,
+           trcblke
+           la    r2,wrkname-1(r7)     last byte of name
+           if    (cli,0(r2),eq,c'.')  make output stem
+             trclog 'gen as numstem'
+             if    (cli,pnewname_dl,gt,l'mask)
+               reason 'Mask too long',8,t
+               #subr exit,rc=8
+             endif
+             mvc   mask,pnewname
+             mvc   maskl,pnewname_dl
+             mvi   newnmopt,o_numstem
+           endif
+         endif
+* append if parm APPEND and output is numstem
+         if    (cli,append,eq,c'Y'),and,(tm,newnmopt,o_numstem,o)
+           strmake wrkname,(pnewname,b.pnewname_dl),'0',lr=r2
+           #subr call,RxGetx,parm=(wrkname,(r2),wrk1k,8),pl=exitpl
+           lr    r2,r0
+           bctr  r2,0
+           l     r1,dbfr1da
+           j     *+10
+           pack  dw,0(*-*,r1)
+           ex    r2,*-6
+           mvc   outnum,dw+4
+           trcblk
+           strmake logr,'append num=',(outnum,,p2d,8)
+           trclog ,
+           trcblke
+         endif
+* do copy
+         using vlbeblok,r4
+         la    r4,nlstfrst-(vlbenext-vlbeblok)
+         do    while,(icm,r4,15,VLBEnext,nz)
+* if both in and out are numstems and name is stem.0 then ignore
+           if  (tm,newnmopt,o_numstem,o),                              c
+               and,(tm,nameopts,o_numstem,o),                          c
+               or,(tm,nameopts,o_genstem,o)
+             la    r14,vlbename-2
+             llc   r15,vlbelen
+             ar    r14,r15
+             if    (=c'.0',eq,0(r14)),then=iterate
+           endif
+*
+           #subr call,RxGet,pl=subrpl,                                 c
+               parm=(vlbename,b.vlbelen,f.dbfr1a,f.dbfr1l)
+           if    (cfi,r15,eq,1),then=iterate  data no-match
+           if    (cfi,r15,eq,9),then=leave    eof
+           if    (ltr,r15,r15,nz),then=leave  error
+           if    (cli,maskl,ne,0)    generate newname from mask
+             StrByMsk string=(vlbename,b.vlbelen),                     c
+               mask=(mask,b.maskl),out=pnewname,pl=subrpl
+               stc   r0,pnewname_dl save length
+           endif
+           l     r2,dbfr1a
+           #subr call,RxPut,pl=subrpl,                                 c
+               parm=(vlbename,b.vlbelen,4(,r2),f.vardatal)
+         enddo
+* if rename the delete originals
+         if    (=c'RENAME ',eq,function)
+           #subr call,Drop
+         endif
+         drop  r4
+* stem.0 is written in the Epilog section
+         #subr exit
+         #subr drop
+
+*-
+* Copy stem to ISPF table, as(ISPF varname)
+* Table must exist.
+* Syntax:
+*  STEM2TBL  STEM(stemname) TABLE(table) TBLVAR(varname) | STACK
+* Note REXX VPUT variables are automatically available for ISPF
+*-
+Stem2Tbl #subr xprolog=SubrProl,xepilog=SubrEpil
+* check required parameters
+         sr    r2,r2
+         if    (cli,tblvar_dl,eq,0),or,(cli,isptbl_dl,eq,0),           c
+               then=(la,r2,1)
+         if    (cli,stack,ne,c'Y'),and,(cli,pname_dl,eq,0),            c
+               then=(la,r2,1)
+         if    (ltr,r2,r2,nz)
+           reason emreqmis,8,t
+           #subr  exit,rc=8
+         endif
+         if    (cli,stack,eq,c'Y')
+           trclog 'from stack'
+         endif
+* make variables table
+         #subr call,MKVNL
+         if    (nz),then=(#subrend,(r15))
+         if    (cli,trace,eq,c'Y'),then=(Call,DumpVLBS) dump storage
+* do copy
+         using vlbeblok,r9
+         la    r9,nlstfrst-(vlbenext-vlbeblok)
+         do    while,(icm,r9,15,VLBEnext,nz)
+           #subr call,RxGet,pl=subrpl,parm=(vlbename,b.vlbelen)
+           if    (cfi,r15,eq,9),then=leave  stack eof
+           if    (ltr,r15,r15,nz),then=iterate
+           IspExec 'VReplace',tblvar,vardatal,f.dbfr1da,pl=exitpl
+           trcblk
+           strmake logr,'vrepl rc ',(r15,,cvdr,6),                     c
+               +1,tblvar,' = "',(f.dbfr1da,f.vardatal,,60),'"'
+           trclog
+           trcblke
+           IspExec 'TbAdd',isptbl,pl=exitpl
+           trcblk
+           strmake logr,'tbadd rc ',(r15,,cvdr,6),+1,isptbl
+           trclog
+           trcblke
+           ap    outnum,p1
+         enddo
+         #subr exit
+         #subr drop
+
+*-
+* Copy from ISPF table to stem
+* Syntax:
+*  TBL2STEM  TBLVAR(varname) TABLE(table) STEM(stemname) | STACK
+*-
+Tbl2Stem #subr xprolog=SubrProl,xepilog=SubrEpil
+* check required parameters
+         sr    r2,r2
+         if    (cli,tblvar_dl,eq,0),or,(cli,isptbl_dl,eq,0),           c
+               then=(la,r2,1)
+         if    (cli,tostack,ne,c'Y'),and,(cli,pname_dl,eq,0),          c
+               then=(la,r2,1)
+         if    (ltr,r2,r2,nz)
+           reason emreqmis,8,t
+           #subr  exit,rc=8
+         endif
+         mvc   namemaxl,=a(8)
+         mvc   datamaxl,=a(34000)
+         if    (cli,tostack,eq,c'Y')
+           trclog 'to stack'
+         else
+           mvc   pnewname_dl(l'pnewname+1),pname_dl
+           la    r1,pnewname
+           llc   r0,pnewname_dl
+           la    r15,newnmopt
+           mvc   fw,=c'newn'
+           #subr Call,SetVopt
+           stc   r0,pnewname_dl        possible modified length
+         endif
+
+         IspExec 'TbTop',isptbl,pl=exitpl
+         do    forever
+           IspExec 'TbSkip',isptbl,pl=exitpl
+           if    (nz),then=leave
+           mvc   fw,=a(32756)
+           IspExec 'vcopy',tblvar,fw,f.dbfr1a,'move',pl=exitpl
+           lr    r3,r15
+           trcblk
+           strmake logr,'vcopy ',tblvar,' rc ',(r3,,cvdr,6),           c
+               +1,(fw,,c2d,6),' "',(f.dbfr1a,f.fw,,40),'"'
+           trclog ,
+           trcblke
+           #subr call,RxPut,pl=subrpl,                                 c
+               parm=(pnewname,pnewname_dl,f.dbfr1a,f.fw)
+         enddo
+         #subr exit
+         #subr drop
+
+*-
+* Index
+*-
+INDEX    #subr xprolog=SubrProl,xepilog=SubrEpil
+* check required parameters
+         if    (cli,pname_dl,eq,0),or,(cli,pnewname_dl,eq,0)
+           reason emreqmis,8,t
+           #subr  exit,rc=8
+         endif
+*
+         if    (tm,newnmopt,o_genstem,o)
+           ni    newnmopt,255-o_genstem     change genstem
+           oi    newnmopt,o_numstem         to numstem
+           trclog 'set numstem'
+         endif
+         if    (tm,newnmopt,o_numstem,z)
+           reason 'Invalid output',8,t
+           #subr exit
+         endif
+* init
+         #subr call,MKVNL
+         if    (nz),then=(#subrend,(r15))
+         if    (cli,trace,eq,c'Y'),then=(Call,DumpVLBS) dump storage
+* do make index
+         llc   r7,pname_dl             size of base
+         using vlbeblok,r9
+         la    r9,nlstfrst-(vlbenext-vlbeblok)
+         do    while,(icm,r9,15,VLBEnext,nz)
+           if    (tm,nameopts,o_genstem+o_numstem,nz)
+             if    (cli,all,ne,c'Y')     not all vars
+               llc   r5,vlbelen
+               sr    r5,r7               last qual len
+               la    r6,vlbename(r7)     -> last qualifier
+               StrTest str=((r6),(r5)),test=num
+               if    (z),then=iterate
+             endif
+           endif
+           ap    outnum,p1
+           RxStemname base=(pnewname,b.pnewname_dl),pnum=outnum,       c
+               stema=wrkname
+           lr    r2,r0
+           #subr call,RxPutx,parm=(wrkname,(r2),                       c
+               vlbename,b.vlbelen),pl=exitpl
+         enddo
+* stem.0 is written in the Epilog section
+         #subr exit
+         #subr drop
+
+*-
+* Drop
+*-
+DROP     #subr xprolog=SubrProl,xepilog=SubrEpil
+* check required parameters
+         if    (cli,pname_dl,eq,0)
+           reason emreqmis,8,t
+           #subr  exit,rc=8
+         endif
+*
+* init, if DROP is major command
+         if    (=a(0),eq,vlblkca)
+           #subr call,MKVNL
+           if    (nz),then=(#subrend,(r15))
+           if    (cli,trace,eq,c'Y'),then=(Call,DumpVLBS) dump storage
+         endif
+* do drop
+         using vlbeblok,r4
+         la    r4,nlstfrst-(vlbenext-vlbeblok)
+         do    while,(icm,r4,15,VLBEnext,nz)
+           RxvDrop name=(vlbename,b.vlbelen)
+           lr    r2,r15
+           trcblk
+           strmake logr,'drop ',(vlbename,b.vlbelen,,40),              c
+               ' rc ',(r2,,cvdr,6)
+           trclog ,
+           trcblke
+           ap    delnum,p1
+         enddo
+         #subr exit
+         #subr drop
+
+*-
+* Dsect used by BROWSE, EDIT and VIEW
+*-
+Ispprm   dsect
+isppprof ds    cl8
+ispprecf ds    cl8
+ispprecl ds    a
+ispprmod ds    a
+isppwmod ds    a
+isppbmod ds    a
+*spppnl  ds    cl8
+isppuser ds    a
+isppnull ds    a
+         ds    0a
+ispprml  equ   *-ispprm
+*-
+* Edit
+*-
+Edit     #subr xprolog=SubrProl,xepilog=SubrEpil
+* do common initialization
+         #subr call,bevinit
+         if    (ltr,r15,r15,nz)
+           #subr exit,rc=(r15)
+         endif
+* get data buffer
+         GetStor sz=32760+256+4,dp=dbfr2a
+         xc    0(4,r1),0(r1)
+* setup parameter block
+         using ispprm,r8
+         la    r8,wrk1k
+         mvc   ispprm(ispprml),blank
+*        if    (cli,panel_dl,ne,0),then=(mvc,ispppnl,panel)
+         mvc   ispprecf,=cl8'V'
+         mvc   isppprof,=cl8'RXRV'
+         iilf  r2,32760                *max data length*
+         st    r2,ispprecl             record length
+         mvc   ispprmod,=v(Editi)      -> input exit
+         oi    ispprmod,x'80'
+         mvc   isppwmod(4),=v(Edito)   -> output exit
+         oi    isppwmod,x'80'
+         mvc   isppbmod(4),zero        no BRIF input exit
+         oi    isppbmod,x'80'
+         st    r10,isppuser            -> local storage (user area)
+* call
+         xc    nlstcsr,nlstcsr
+         trclog 'Call...'
+         sr    r5,r5
+         IspExec 'EDIF',ispphdr,'RXRV',                                c
+               'V',ispprecl,ispprmod,isppwmod,,isppuser,               c
+               ' ',panel,macro,pl=exitpl
+         st    r15,editrc
+         lr    r5,r15
+         if    (cfi,r5,eq,8),then=(la,r5,4) empty / canceled
+         trcblk
+         strmake logr,'Edit rc ',(r5,,cvdr,6),lr=r2
+         trclog ,
+         trcblke
+         if    (cli,stack,eq,c'Y')
+           mvi   newnmopt,0          prevent some
+           mvi   nameopts,0           post-process errors
+           if    (cfi,r5,eq,4)       cancelled??
+             #subr call,StkiRewr     better rewrite quickly
+           endif
+*        else
+*          if    (cfi,r5,eq,4)       cancelled??
+*          endif
+         endif
+         st    r5,rc
+         #subr exit
+         #subr drop
+*-
+* EDIF input routine (also used by VIEW)
+*
+* at entry r1 ->
+* Fullword pointer to data (output from read routine)
+* Fullword fixed binary data length 10-32760
+* Fullword fixed binary request code as follows:
+*  0 Read next record
+*  1 First read request
+* Fullword dialog data area address.
+*
+* at exit r15:
+*  0 Normal completion.
+*  8 End of data records (no data record returned).
+* 16 Read error.
+* 20 Severe error.
+*-
+Editi    #subr sa=no
+         lr    r9,r1
+         l     r10,12(,r9)
+         l     r10,0(,r10)             -> global storage
+         #subr chainsa,sa=exitsa
+* get next record from stack image
+         if    (cli,stack,eq,c'Y')
+           #subr call,StkiGetN
+           if    (nz),then=(#subrend,8) end of stack
+           lm    r2,r3,0(r9)
+           st    r1,0(,r2)             store address
+           st    r0,0(,r3)             store length
+           #subr exit,rc=0
+         endif
+* get next named record
+         using vlbeblok,r8
+         if    (lt,r8,nlstcsr,nz)
+           if    (lt,r8,vlbenext,z)    end of list
+             trclog 'nlst end'
+             if    (tm,nameopts,o_numstem,o)  numstem?
+               l     r1,nlstnum        preset numstem
+               cvd   r1,dw              count in case
+               mvc   outnum,dw+4         of cancel
+             endif
+             #subr exit,rc=8
+           endif
+         else
+           trclog 'first'
+           l     r8,nlstfrst
+         endif
+         st    r8,nlstcsr
+*
+         #subr call,RxGet,pl=subrpl,parm=(vlbename,b.vlbelen)
+         la    r6,4(,r1)               data address
+         lr    r7,r0                   length
+
+*- numstem, pass data only
+         if    (tm,nameopts,o_numstem,o)
+           lm    r2,r3,0(r9)
+           st    r6,0(,r2)             store address
+           st    r7,0(,r3)             store length
+*- other, pass name=data
+         else  ,                       get data after name area
+           GetStor sz=255(,r7),dp=dbfr2a
+           l    r4,dbfr2a
+* honor NW parm
+           if    (cli,nwidth_dl,ne,0)  forced width ?
+             if    (cli,nwidth,eq,c'*') use generated width
+               l     r3,nlstmaxw
+             else
+               l     r3,nwidthv
+             endif
+             clear wrk1k,256
+             llc   r14,vlbelen
+             bctr  r14,0
+             j     *+10
+             mvc   wrk1k(*-*),vlbename
+             ex    r14,*-6
+             if     (cli,function,eq,c'E')  if EDIT
+               strmake ((r4)),(wrk1k,(r3)),'=',((r6),(r7)),lr=r5
+             else   ,                       otherwise must be VIEW
+               la    r3,2(r3)               add some whitespace
+               strmake ((r4)),(wrk1k,(r3)),((r6),(r7)),lr=r5
+             endif
+           else
+             strmake ((r4)),(vlbename,b.vlbelen),'=',((r6),(r7)),lr=r5
+           endif
+           lm    r2,r3,0(r9)
+           st    r4,0(,r2)             store address
+           st    r5,0(,r3)             store length
+         endif
+         #subr exit,rc=0               return data
+         #subr drop
+*-
+* EDIF output routine
+*
+* at entry r1 ->
+* -> Fullword pointer to record data to be written.
+* -> Fullword fixed binary data length of record to be written.
+* -> Fullword of source and change bits for the record.
+* -> Fullword fixed binary request code as follows:
+*  0 Write the next record
+*  1 First write request
+*  2 Last write request (final data record provided)
+*  3 First and last write request (only one data record)
+*  4 No data records to write (all records have been deleted)
+* Fullword dialog data area address
+*
+* at exit r15:
+*  0 Normal completion..
+* 16 Output error, return to Edit mode.d returned).
+* 20 Severe error
+*-
+Edito    #subr sa=no
+         lr    r9,r1
+         l     r10,16(,r9)
+         l     r10,0(,r10)             -> global storage
+         #subr chainsa,sa=exitsa
+         l     r2,12(,r9)              request code
+         if    (cli,3(r2),eq,4)        no records returned
+           trclog 'edito no data'
+           #subr exit,rc=0
+         endif
+         if    (tm,3(r2),1,o)          1=first
+           xc    editoutn,editoutn     reset count
+*         if stack then drop all records before write
+           if    (cli,stack,eq,c'Y')
+             do    over(r5)
+               RxStack pull                r1 -> data, r0 = length
+               if    (ltr,r15,r15,nz)
+                 leave
+               endif
+             enddo
+           endif
+         endif
+
+*- get data
+         lm    r6,r7,0(r9)
+         l     r6,0(,r6)               address
+         l     r7,0(,r7)               length
+* get data length, edit passes trailing x'00's
+         StrlocCh ((r6),(r7)),x'00'
+         if    (ltr,r1,r1,nz)
+           sr    r1,r6                 set adjusted
+           lr    r7,r6                  length
+         endif
+
+* delete variable ?
+         if    (cli,0(r6),eq,c'-'),and,(cli,stack,ne,c'Y'),            c
+               and,(tm,nameopts,o_numstem,z)
+           trclog 'drop var'
+           StrlocCh ((r6),(r7)),c'=',c' '
+           if    (ltr,r1,r1,nz)     found
+             lr    r7,r1            compute
+             sr    r7,r6             new length
+           endif
+           bctr  r7,0               length - '-'
+           #subr call,RxvDrop,pl=subrpl,parm=(1(r6),(r7))
+           #subr exit,rc=0
+         endif
+
+         counter editoutn,1
+
+* if stack then just add data
+         if    (cli,stack,eq,c'Y')
+           RxStack queue,data=((r6),(r7))
+           #subr exit,rc=0
+         endif
+
+* if numstem then build stemname incl number
+         if    (tm,nameopts,o_numstem,o)
+           RxStemName base=(pnewname,b.pnewname_dl),                   c
+               num=f.editoutn,stema=wrkname
+           la    r4,wrkname            -> name
+           lr    r5,r0                 name length
+* else pull varname- and data defs
+         else
+           lr    r4,r6                 -> start of name
+           StrlocCh ((r6),(r7)),c'='
+           if    (ltr,r6,r1,z)
+             trclog 'no "=" found'
+             #subr exit,rc=0
+           endif
+           lr    r5,r6                 -> '='
+           lr    r15,r6
+           sr    r15,r4                length of front, up till '='
+           sr    r7,r15                length of data
+           la    r6,1(,r6)             past '='
+* locate end of name, r3 ->'='
+           do    until,(cli,0(r5),ne,c' ')
+             bctr  r5,0
+           enddo
+           la    r5,1(,r5)
+           sr    r5,r4                 name length
+         endif
+
+* write variable, name is r4,r5, data is r6,r7
+         #subr call,RxPutx,parm=((r4),(r5),(r6),(r7)),pl=exitpl
+
+* if last for numstem, then setup for write stem.0 in epilog
+         l     r2,12(,r9)              request code
+         if    (tm,3(r2),2,o),and,(tm,nameopts,o_numstem,o)
+           l     r2,editoutn
+           cvd   r2,dw
+           mvc   outnum,dw+4
+* delete numstem vars gt saved number
+           if    (editoutn,lt,nlstnum)
+             l     r4,editoutn
+             la    r4,1(,r4)
+             l     r5,nlstnum
+             do    from=(r4),to=(r5)
+               RxStemName base=(pnewname,b.pnewname_dl),               c
+               num=(r4),stema=wrkname
+               lr    r7,r0                 name length
+               #subr call,RxvDrop,pl=subrpl,parm=(wrkname,(r7))
+             enddo
+           endif
+         endif
+*
+         #subr exit,rc=0
+         #subr drop
+*-
+* View
+*-
+View     #subr xprolog=SubrProl,xepilog=SubrEpil
+* do common initialization
+         #subr call,bevinit
+         lr    r5,r15
+         if    (cli,stack,eq,c'Y')     if input is stack then
+           #subr call,StkiRewr         better rewrite immediately
+         endif
+         if    (ltr,r5,r5,nz)
+           #subr exit,rc=(r5)
+         endif
+* get data buffer
+         GetStor sz=32760+256+4,dp=dbfr2a
+         xc    0(4,r1),0(r1)
+         la    r8,wrk1k
+* setup parameter block
+         using ispprm,r8
+         mvc   ispprm(ispprml),blank
+*        if    (cli,panel_dl,ne,0),then=(mvc,ispppnl,panel)
+         mvc   ispprecf,=cl8'V'
+         mvc   isppprof,=cl8'RXRV'
+         iilf  r2,32760                *max data length*
+         st    r2,ispprecl             record length
+         mvc   ispprmod,=v(Editi)      -> input exit, shared with EDIT
+         oi    ispprmod,x'80'
+         mvc   isppwmod(4),zero        no output exit
+         oi    isppwmod,x'80'
+         mvc   isppbmod(4),zero        no BRIF input exit
+         oi    isppbmod,x'80'
+         st    r10,isppuser            -> local storage (user area)
+* call
+         xc    nlstcsr,nlstcsr
+         trclog 'Call...'
+         IspExec 'VIIF',ispphdr,'RXRV',                                c
+               'V',ispprecl,ispprmod,,isppuser,                        c
+               ' ',panel,pl=exitpl
+         mvi   newnmopt,0            prevent some
+         mvi   nameopts,0             post-process errors
+         #subr exit,rc=(r15)
+         #subr drop
+*-
+* Browse
+*-
+Browse   #subr xprolog=SubrProl,xepilog=SubrEpil
+* do common initialization
+         #subr call,bevinit
+         lr    r5,r15
+         if    (cli,stack,eq,c'Y')     if input is stack then
+           #subr call,StkiRewr         better rewrite immediately
+         endif
+         if    (ltr,r5,r5,nz)
+           #subr exit,rc=(r5)
+         endif
+*
+         la    r8,wrk1k
+         using ispprm,r8
+         mvc   ispprm(ispprml),blank
+*        if    (cli,panel_dl,ne,0),then=(mvc,ispppnl,panel)
+         mvc   ispprecf,=cl8'V'
+         mvc   isppprof,=cl8'RXRV'
+         iilf  r2,32760                *max data length*
+         st    r2,ispprecl             record length
+         mvc   ispprmod,zero           no edit input exit
+         oi    ispprmod,x'80'
+         mvc   isppwmod(4),zero        no edit output exit
+         oi    isppwmod,x'80'
+         mvc   isppbmod(4),=v(Brifi)   -> BRIF input exit
+         oi    isppbmod,x'80'
+         st    r10,isppuser            -> local storage (user area)
+*
+         xc    nlstcsr,nlstcsr
+         trclog 'Call...'
+         sr    r5,r5
+         IspExec 'BRIF',ispphdr,                                       c
+               'V',ispprecl,isppbmod,isppnull,isppuser,                c
+               panel,pl=exitpl
+         mvi   newnmopt,0              prevent some
+         mvi   nameopts,0              post-process errors
+         #subr exit,rc=0
+         #subr drop
+*-
+* BRIF input routine
+*
+* at entry r1 ->
+*  Fullword pointer to record data read (output from read routine)
+*  Fullword fixed binary data length of the record read.
+*  Fullword relative record number:
+*   - Record-requested input
+*   - Record-provided output from read routine when return code is
+*     4 or 8.
+*  Fullword dialog data area address.
+*
+* at exit r15:
+*  0 Normal completion.
+*  4 Temporary end of file.
+*  8 Record requested beyond end of data. The relative record number
+*    of the last data record and a pointer to the last data record
+*    are returned.
+*  16 Read error.
+*  20 Severe error.
+*-
+BrifI    #subr sa=no
+         lr    r9,r1
+         l     r10,12(,r9)
+         l     r10,0(,r10)             -> global storage
+         #subr chainsa,sa=exitsa
+         l     r6,8(,r9)               load requested
+         l     r6,0(,r6)                 seqnum
+         trcblk
+         strmake logr,'brif rid ',(r6,,cvdr,6)
+         trclog ,
+         trcblke
+
+* input is the stack
+         if    (cli,stack,eq,c'Y')
+           sr    r7,r7                 preset rc
+           lr    r1,r6                 copy seq
+* test for overflow
+           if    (c,r1,gt,stkicount)
+             l     r1,stkicount        use last
+             l     r14,8(,r9)          -> record #
+             st    r1,0(,r14)          set last
+             la    r7,8                rc=past last
+           endif
+           #subr call,STkiGetD         get direct, r1 = #
+           lr    r4,r1                 -> data
+           lr    r5,r0                 size
+* setup return values
+           lm    r2,r3,0(r9)
+           st    r4,0(,r2)             store address
+           st    r5,0(,r3)             store length
+           #subr exit,rc=(r7)
+         endif
+
+* input is a variable(s)
+         trclog 'Input is a variable'
+         using vlbeblok,r8
+         sr    r7,r7                   preset rc
+         l     r8,nlstfrst             default - start from first
+*- check for ge last record
+         if    (c,r6,ge,nlstnum)
+           trclog 'brif ge last'
+           l     r8,nlstlast           use last name list entry
+           if    (c,r6,gt,nlstnum)     past last?
+             l     r6,nlstnum          get last seq#
+             l     r1,8(,r9)           -> record #
+             st    r6,0(r1)            set last
+             la    r7,8                rc
+           endif
+*- scan list
+         else
+           bctr  r6,0
+           do    over(r6)
+             l     r8,vlbenext
+           enddo
+         endif
+         st    r8,nlstcsr
+*
+         #subr call,RxGet,pl=subrpl,parm=(vlbename,b.vlbelen)
+         la    r6,4(,r1)               data address
+         lr    r5,r0                   length
+
+*- numstem, pass data only
+         if    (tm,nameopts,o_numstem,o)
+           lm    r2,r3,0(r9)
+           st    r6,0(,r2)             store address
+           st    r5,0(,r3)             store length
+*- other, pass name=data
+         else  ,                       get data after name area
+           GetStor sz=255(,r5),dp=dbfr2a
+           l    r4,dbfr2a
+
+* honor NW parameter
+           if    (cli,nwidth_dl,ne,0)  forced width ?
+             if    (cli,nwidth,eq,c'*') use generated width
+               l     r3,nlstmaxw
+             else
+               l     r3,nwidthv
+             endif
+             clear wrk1k,256
+             llc   r14,vlbelen
+             bctr  r14,0
+             j     *+10
+             mvc   wrk1k(*-*),vlbename
+             ex    r14,*-6
+             la    r3,2(r3)
+             strmake ((r4)),(wrk1k,(r3)),((r6),(r5)),lr=r6
+           else
+* 2024-06-19 end
+             strmake ((r4)),(vlbename,b.vlbelen),'=',((r6),(r5)),lr=r6
+           endif
+           lm    r2,r3,0(r9)
+           st    r4,0(,r2)           store address
+           st    r6,0(,r3)           store length
+         endif
+*
+         #subr exit,rc=(r7)
+         #subr drop
+*-
+* Common initialization for browse, edit and view commands
+*-
+BEVInit  #subr xprolog=SubrProl,xepilog=SubrEpil
+* check required parameters
+         if    (cli,pname_dl,eq,0),and,(cli,stack,ne,c'Y')
+           reason emreqmis,8,t
+           #subr  exit,rc=8
+         endif
+*
+         if    (cli,stack,eq,c'Y')
+           #subr call,StkiMake
+           if    (stkicount,eq,zero)
+             reason 'Null stack',4,t
+             #subr exit,rc=4
+           endif
+           #subr exit,rc=0
+         endif
+*
+         if    (tm,nameopts,o_numstem,o),and,(cli,pnewname_dl,eq,0)
+           mvc   pnewname_dl(l'pname+1),pname_dl
+         endif
+         llc   r1,pnewname_dl
+         la    r2,pnewname-2(r1)
+         if    (=c'.#',eq,0(r2))
+           bctr  r1,0
+           stc   r1,pnewname_dl
+         endif
+*
+         #subr call,MKVNL               make list of varnames
+         mvc   newnmopt,nameopts
+         if    (nz),then=(#subrend,(r15))
+         if    (nlstnum,eq,zero)
+           reason 'No names passed filter',4,t
+           #subr exit,rc=4
+         endif
+         if    (cli,trace,eq,c'Y'),then=(Call,DumpVLBS) dump storage
+* set header - fixed length 54 chars
+         clear ispphdr
+         if    (cli,hdr_dl,eq,0)       make default
+           strmake ispphdr,'REXXVARS_',(function,b.function_dl),       c
+               ':',(pname,b.pname_dl,,40),lr=r2
+         else
+           mvc   ispphdr,hdr
+           llc   r2,hdr_dl
+           if    (cfi,r2,gt,l'ispphdr),then=(la,r2,l'ispphdr)
+         endif
+         la    r1,ispphdr
+         do    over(r2)
+           if    (cli,0(r1),eq,c' '),then=(mvi,0(r1),c'_')
+           la    r1,1(,r1)
+         enddo
+         #subr exit
+         #subr drop
+
+*-
+* Sort
+*-
+* Sort record base section layout
+SortRec   Dsect
+Sortrrdw  ds    0a
+sortrsz   ds    h
+sortrseg  ds    h
+sortrxra  ds    a
+sortrpfl  equ   *-SortRec
+          lcla  &sortrpfl
+&sortrpfl seta  8
+sortrdata ds    0c
+* Sort record extension section layout
+SortXRec  Dsect
+Sortxdsz  ds    a                       data size (getmain sz-4)
+Sortxpfl  equ   *-SortXRec
+sortxdata ds    0c
+*
+&sortsplitp seta  80                    width for extension split
+&sortsplitp seta  32740                 width for extension split
+*-
+SORT     #subr xprolog=SubrProl,xepilog=SubrEpil
+*
+         if    (cli,stack,eq,c'Y')
+           mvc   pname(3),=c'Z.#'
+           mvi   pname_dl,3
+           oi    nameopts,o_numstem
+         endif
+         if    (cli,tostack,eq,c'Y')
+           mvc   pnewname(3),=c'Z.#'
+           mvi   pnewname_dl,3
+           oi    newnmopt,o_numstem
+         endif
+
+* check required parameters
+         if    (cli,pname_dl,eq,0)
+           reason emreqmis,8,t
+           #subr  exit,rc=8
+         endif
+*
+         if    (cli,pstem_dl,ne,0),and,(cli,pname_dl,eq,0)
+           mvc   pname_dl(l'pstem+1),pstem_dl
+         endif
+         if    (cli,pnamecnt,gt,1)
+           reason 'Multiple names',8,t
+           #subr exit
+         endif
+* convert var(stem.) to var(stem.#)
+         llc   r1,pname_dl
+         if    (ltr,r1,r1,nz)
+           la    r2,pname-1(r1)        -> last byte of name
+           if    (cli,0(r2),eq,c'.')   just stemname?
+             mvi   1(r2),c'#'          add numstem indicator
+             la    r1,1(,r1)
+             stc   r1,pname_dl         adjust length
+             trclog 'varname converted'
+           endif
+         endif
+* use name as default newname
+         if    (cli,pnewname_dl,eq,0)
+           mvc   pnewname_dl(l'pnewname+1),pname_dl
+           trclog 'varname->newname'
+         endif
+* convert as(stem.) to as(stem.#)
+         llc   r1,pnewname_dl
+         if    (ltr,r1,r1,nz)
+           la    r2,pnewname-1(r1)     -> last byte of name
+           if    (cli,0(r2),eq,c'.')   just stemname?
+             mvi   1(r2),c'#'          add numstem indicator
+             la    r1,1(,r1)
+             stc   r1,pnewname_dl      adjust length
+             trclog 'newname converted'
+           endif
+         endif
+* setvopt for newname
+         if    (cli,tostack,ne,c'Y')
+           la    r1,pnewname
+           llc   r0,pnewname_dl
+           la    r15,newnmopt
+           mvc   fw,=c'newn'
+           #subr Call,SetVopt
+           stc   r0,pnewname_dl        possible modified length
+           if    (tm,newnmopt,o_numstem,z)
+             reason 'Newname is not numstem',8,t
+             #subr exit
+           endif
+         endif
+* init
+         #subr call,MKVNL
+         if    (nz),then=(#subrend,(r15))
+         if    (cli,trace,eq,c'Y'),then=(Call,DumpVLBS) dump storage
+         GetStor sz=f.datamaxl,dp=dbfr1a
+
+* run internal sort if possible - simple sort, lt 10000 records
+         if    (cli,pfields_dl,ne,0),or,(cli,pdfsparm_dl,ne,0)
+           mvi   pmode,c'E'            force external
+           trclog 'External mode forced'
+         endif
+         if    (cli,pmode,eq,c'E'),or,(cli,pmode,eq,c'I')
+           mvc   sortmode,pmode
+         else
+           mvi   sortmode,c'E'         default is external
+           mvc   fw,namenum
+           if    (fw,eq,p0),then=(mvc,fw,stackcnt)
+           if    (cli,pfields_dl,eq,0),and,(cli,pdfsparm_dl,eq,0),     c
+               and,(cp,fw,lt,=p'&sortcut')
+             trclog 'attempting internal sort'
+             mvi   sortmode,c'I'
+           endif
+         endif
+         trcblk
+         strmake logr,'sort mode ',sortmode,lr=r2
+         rxsay logr,(r2)
+         trcblke
+         if    (cli,sortmode,eq,c'I')
+           #subr call,Sortint
+           if   (z),then=(#subrend)    ok
+           trclog 'redrive as external sort'
+           mvi   sortmode,c'E'
+           mvc   rc,zero               dont report
+           mvi   reason,c' '           as error
+         endif
+
+*-
+*        External sort
+*-
+         l     r2,datamaxl
+         la    r2,sortrpfl(,r2)        room for prefix
+         GetStor sz=(r2),dp=dbfr1a     rexx data / sort output
+         GetStor sz=(r2),dp=dbfr2a     sort record / nodup test
+
+* set default FIELDS
+         if    (cli,pfields_dl,eq,0)
+           la    r3,=c'A'
+           if    (cli,descnd,eq,c'Y'),then=(la,r3,=c'D')
+           l     r4,datamaxl
+           if    (ltr,r4,r4,z),or,(cfi,r4,gt,4088),then=(la,r4,4088)
+           strmake pfields,'1,',(r4,,cvdr,5),',CH,',((r3),1),          c
+               lr=r2
+           stc   r2,pfields_dl
+         endif
+
+* allocate sysout
+         sr    r0,r0
+         Link  EP=BPXWDYN,param=soutfree,VL=1  just in case
+         sr    r0,r0
+         Link  EP=BPXWDYN,param=soutalc,VL=1
+         st    r15,fw
+         lr    r2,r15
+         trcblk
+         strmake logr,(soutalc+2,soutalcl),' rc ',(r2,,cvdr,8)
+         trclog ,
+         trcblke
+
+* make DFSPARM
+         if    (cli,pdfsparm_dl,ne,0)
+           la    r1,1
+           #subr call,DfsParm
+         endif
+
+* Make sort cntl
+* Work area layout:
+*  +00 total record size (bin)
+*  +04 1st sort field - pos (packed)
+*  +08 2nd sort field - length (packed)
+         trclog ,
+         l     r3,datamaxl
+         if    (cfi,r3,gt,&sortsplitp),then=(iilf,r3,32760) cut at max
+         la    r3,sortrpfl(,r3)
+* note that filesz may be way larger that the actual number, as
+* records may be discarded by the E15 exit.
+         clear sortcntl
+         Strmake sortcntl+2,reg=r9,' OPTION VLSHRT,VLSCMP'
+         if    (cli,stack,ne,c'Y')
+           strmake ((r9)),reg=r9,',SIZE=U',(nlstnum,,c2d,6)
+         endif
+         strmake ((r9)),reg=r9,',SMF=NO,MSGDDN=ZRXRVLST'
+         if    (cli,stack,eq,c'Y'),then=(iilf,r3,&sortsplitp)
+         strmake ((r9)),reg=r9,                                        c
+               ' RECORD TYPE=V,LENGTH=32756',  (r3,,cvdr,6),           c
+               ' SORT FIELDS=(',lr=r2
+*
+         if    (=c'COPY',eq,pfields)
+           mvc   0(4,r9),pfields
+           la    r9,4(,r9)
+         else
+           StrWords pfields,b.pfields_dl,dlm==c','
+           lr    r8,r0                        # words
+           do    from=(r6,1),to=(r8),by=4
+*            word 1 = pos
+             StrWord pfields,b.pfields_dl,(r6),dlm==c','
+             lr    r15,r0                     length
+             bctr  r15,0
+             j     *+10
+             pack  fw,0(*-*,r1)
+             ex    r15,*-6
+             ap    fw,=p'&sortrpfl'           pos, add prefix length
+             strmake ((r9)),reg=r9,(fw,4,p2d,5),','
+*            word 2-4 = length,type,dir
+             do    from=(r4,1(,r6)),to=(r5,3(,r6)),by=1
+               StrWord pfields,b.pfields_dl,(r4),dlm==c','
+               lr    r2,r1                    address
+               lr    r3,r0                    length
+               strmake ((r9)),reg=r9,((r2),(r3)),','
+             enddo
+           enddo
+           bctr  r9,0
+         endif
+         mvi   0(r9),c')'
+         la    r1,sortcntl+1
+         sr    r9,r1
+         sth   r9,sortcntl                      length
+*
+         trcblk
+         strmake logr,'sortcntl: ',(sortcntl+3,(r9),,l'logr-12)
+         trclog ,
+         trcblke
+         trclog ,
+
+* Call  Sort
+         la    r14,sortcntl
+         l     r15,=v(sortxe15)
+         l     r0,=v(sortxe35)
+         stm   r14,r0,exitpl
+         oi    exitpl+4,x'80'              set 31 bit mode for E15
+         oi    exitpl+8,x'80'              set 31 bit mode for E35
+         st    r10,exitpl+12
+         mvc   exitpl+16(4),=4x'ff'
+         xc    nlstcsr,nlstcsr
+         xc    sortwa,sortwa
+         la    r1,exitpl
+         Link  ep=SORT
+
+* show rc and sysout
+         lr    r2,r15
+         if    (ltr,r2,r2,nz),or,(cli,trace,eq,c'Y')
+           strmake logr,'Sort rc=',(r2,,cvdr,8),                       c
+               ' outnum=',(outnum,4,p2d,6),lr=r3
+           rxsay logr,(r3)
+           mvc   reason,logr
+           if    (ltr,r2,r2,nz),then=(mvi,rc+3,12)
+           QSAM31 gen,dcba=soutdcba,acc=get,ddname='ZRXRVLST',eod=0
+           QSAM31 open,dcba=soutdcba
+           do    forever
+             QSAM31 get,data=logr,dcba=soutdcba
+             if    (ltr,r15,r15,nz),then=leave
+             rxsay logr+1,l'logr-1
+             clear logr
+           enddo
+           QSAM31 close,dcba=soutdcba
+           QSAM31 drop,dcba=soutdcba
+         endif
+
+* free NODUP resources
+         if    (cli,nodup,eq,c'Y')
+           trclog 'free NODUP'
+           Relstor dp=dbfr2a
+         endif
+
+* free ZRXRVLST
+         sr    r0,r0
+         Link  EP=BPXWDYN,param=soutfree,VL=1
+         st    r15,fw
+         lr    r2,r15
+         trcblk
+         strmake logr,(soutfree+2,soutfreel),' rc ',(r2,,cvdr,8)
+         trclog ,
+         trcblke
+         trclog ,
+
+* free DFSPARM
+         if    (cli,pdfsparm_dl,ne,0)
+           la    r1,2
+           #subr call,DfsParm
+         endif
+
+* stem.0 is written in the epilog section
+         #subr exit
+         #subr drop
+
+soutalc  dc    y(soutalcl)
+         dc    c'ALLOC NEW DELETE DD(ZRXRVLST) '
+         dc    c'TRACKS SPACE(1,1) UNIT(SYSDA)'
+soutalcl equ   *-soutalc-2
+soutfree dc    y(soutfreel)
+         dc    c'FREE DD(ZRXRVLST) '
+soutfreel equ  *-soutfree-2
+
+*-
+* Allocate and write DFSPARM using a supplied stem for data.
+* Free DFSPARM DD after SORT has complete.
+* At entry
+*  r1 = 1 : Init,  r1 = 2 : Term,
+*-
+DfsParm  #subr
+         Select
+           When (cfi,r1,eq,1)
+             bal    r9,dfsparmi
+           When (cfi,r1,eq,2)
+             bal    r9,dfsparmt
+           When other
+             strmake reason,'DFSPARM Bad entry code ',                 c
+               (r1,,cvdr,2),lr=r2
+             st    r2,reasonl
+             setrc 8
+             #subr exit,rc=8
+         Endselect
+         #subr exit
+
+*- allocate DFSPARM dynamically, write stem
+DfsParmi ds    0h
+         trclog 'DfsParm init'
+*  allocate
+         sr    r0,r0
+         Link  EP=BPXWDYN,param=dfspalc,VL=1
+         if    (ltr,r3,r15,nz)
+           strmake reason,'DFSPARM alloc rc ',(r3,,cvdr,6),lr=r2
+           st    r2,reasonl
+           setrc 8
+           #subr exit
+         endif
+         trclog 'DfsParm alloc done'
+*  generate i/o cbs, open for output
+         QSAM31 gen,dcba=dfspdcba,acc=put,ddname='DFSPARM'
+         QSAM31 open,dcba=dfspdcba
+         trclog 'DfsParm open done'
+*  get count (stem.0)
+         strmake wrk1k,(pdfsparm,b.pdfsparm_dl),lr=r3
+         la    r4,wrk1k(r3)
+         mvi   0(r4),c'0'
+         la    r3,1(,r3)
+         RxVGet name=(wrk1k,(r3)),data=dw
+         lr    r3,r0
+         strd2c from=(dw,(r3)),reg=r7
+         trcblk
+         strmake logr,'count ',(r7,,cvdr,6),lr=r2
+         rxsay logr,(r2)
+         clear logr
+         trcblke
+*
+         do from=(r6,1),to=(r7,(r7)),by=1
+           clear wrk1k+200,80
+           RxStemGet name=wrk1k,base=(pdfsparm,b.pdfsparm_dl),         c
+               num=(r6),data=(wrk1k+200,80)
+           trcblk
+           strmake logr,'text ',(wrk1k+200,80),lr=r2
+           rxsay logr,(r2)
+           clear logr
+           trcblke
+           QSAM31 put,data=wrk1k+200,dcba=dfspdcba
+         enddo
+         QSAM31 close,dcba=dfspdcba
+         QSAM31 drop,dcba=dfspdcba
+* end
+         sr    r15,r15
+         br    r9
+
+* free DFSPARM dynamically
+DfsParmt ds    0h
+         trclog 'DfsParm term'
+         sr    r0,r0
+         Link  EP=BPXWDYN,param=dfsprel,VL=1  fire-and-forget
+         sr    r15,r15
+         br    r9
+* end
+         #subr exit
+dfspalc  dc    y(dfspalcl)
+         dc    c'ALLOC NEW DELETE DD(DFSPARM) REUSE'
+         dc    c' TRACKS SPACE(1,1) UNIT(VIO)'
+         DC    C' LRECL(80) RECFM(F,B) BLKSIZE(4080)'
+dfspalcl equ   *-dfspalc-2
+dfsprel  dc    y(dfsprell)
+         dc    c'FREE DD(DFSPARM) '
+dfsprell equ  *-dfsprel-2
+         #subr drop
+
+*-
+* SORT E15 - get data, prepare for SORT
+* After SortXEnt
+*  r9  -> exit parameter list
+*  r10 -> user data
+* Parameter list
+*  +0 Address of the new record
+*  +4 User exit address constant
+* Return Code Description
+*  00 (X'00') No Action/Record Altered
+*  08 (X'08') Do Not Return
+*  12 (X'0C') Insert Record
+*  16 (X'10') Terminate DFSORT
+SortX15  SortXEnt E15
+         using vlbeblok,r9
+         if    (cp,getnum,eq,p0),or,(sortwa,eq,zero)
+           trclog 'E15 begin'
+           mvi   sortwa,255
+         endif
+         if    (cli,nlstcsr,eq,x'ff') end of list
+           trclog 'E15 eod1'
+           SortXrtn 8
+         endif
+         if    (lt,r9,nlstcsr,z)
+           la    r9,nlstfrst           simulate vlbenext
+         endif
+*-
+         do    forever
+           if    (lt,r9,vlbenext,z)    end of list
+             TrcLog 'E15 eod2'
+             SortXrtn 8
+           endif
+           st    r9,nlstcsr
+* get next entry, make sort record
+           #subr call,RxGet,pl=subrpl,parm=(vlbename,b.vlbelen)
+*          note - rc 1 is set for data-nomatch !!
+           lr    r2,r15
+           lr    r3,r0                 data length
+           if    (cfi,r2,ne,1),then=leave  1=data no-match
+         enddo
+* got data
+         if    (ltr,r2,r2,nz)
+           TrcLog 'E15 eod3'
+           SortXrtn 8
+         endif
+* Setup sortrec in data buffer 2, input is in data buffer 1.
+* Data address and size are described by dbfr1da dbfr1dl respectively.
+         l     r8,dbfr2da
+         using SortRec,r8
+*        if    (c,r3,gt,datamaxl),then=(st,r3,datamaxl)
+         xc    sortrec(sortrpfl),sortrec clear prefix
+         l     r3,dbfr1dl
+*        base record (le 32740)
+         if    (cfi,r3,le,&sortsplitp)
+           la    r1,sortrpfl(,r3)    record size incl prefix
+           sth   r1,sortrsz          as rdw
+           Strcopy from=(f.dbfr1da,(r3)),to=(sortrdata,(r3)) ,cm=l
+
+*        handle long record (gt 32740), move excess to getmained area
+         else
+           trclog 'longvar'
+*          make base part
+           Strcopy from=(f.dbfr1da,&sortsplitp),                       c
+               to=(sortrdata,&sortsplitp),cm=l
+           mvc   sortrsz,=al2(&sortsplitp)
+*          make extension
+           iilf  r1,&sortsplitp
+           sr    r3,r1               excess of &sortsplitp
+           la    r2,sortxpfl(,r3)    plus prefix
+           Getmain RC,lv=(2),loc=31
+           if    (ltr,r15,r15,nz)
+             strmake logr,'SE15 gm error ',(r3,,cvdr,8),               c
+               ' var ',(vlbename,b.vlbelen,,60),lr=r2
+             mvc   reason,logr
+             st    r2,reasonl
+             mvc   rc,=a(16)
+             SortXrtn 16
+           endif
+           st    r1,sortrxra         save address
+           lr    r7,r1               copy address
+           using sortxrec,r7
+           st    r3,sortxdsz
+* copy to extension area
+           iilf  r4,&sortsplitp      sz of base
+           a     r4,dbfr1da          -> exccess data
+           Strcopy from=((r4),(r3)),to=(sortxdata,(r3)) ,cm=l
+*
+* ago .sx15t1n
+           trcblk
+           st    r3,dw
+           strmake wrk1k,'getm ',(dw,4,c2d,6),' at ',(sortrxra,4,c2x), c
+               lr=r2
+           rxsay wrk1k,(r2)
+           strmake wrk1k,'front ',(sortrsz,2,c2d,5),                   c
+               ' ',(sortrdata,h.sortrsz,,250),lr=r2
+           rxsay wrk1k,(r2)
+           strmake wrk1k,'exten ',(sortxdsz,4,c2d,5),                  c
+               ' ',(sortxdata,f.Sortxdsz,,250),lr=r2
+           rxsay wrk1k,(r2)
+           trcblke
+.sx15t1n anop
+         endif
+* ago .sx15t2n
+         trcblk
+         lh    r2,Sortrrdw
+         ahi   r2,-sortrpfl
+         strmake wrk1k,'e15r  ',                                       c
+               (Sortrrdw,2,c2d,5),' ',(sortrdata,(r2),,250),lr=r2
+         rxsay wrk1k,(r2)
+         trcblke
+.sx15t2n anop
+* if last entry then set indicator
+         if    (vlbenext,eq,zero),then=(mvi,nlstcsr,x'ff')
+         la    r1,Sortrrdw              -> sort record
+         SortXRtn 12
+         ltorg
+         pop   using
+
+*-
+* Sort exit E35 - process sorted records
+* After SortXEnt
+*  r9  -> exit parameter list
+*  r10 -> user data
+* Parameter list
+*  +0 Address of record leaving DFSORT
+*  +4 Address of record in output area
+*  +8 User exit address constant
+* Return Code Description
+* 00 (X'00') No Action/Record Altered
+* 04 (X'04') Delete Record
+* 08 (X'08') Do Not Return
+* 12 (X'0C') Insert Record
+* 16 (X'10') Terminate DFSORT
+*-
+SortX35  SortXEnt E35
+         if    (cp,outnum,eq,p0)       1st
+           trclog 'E35 begin'
+           if    (cli,nodup,eq,c'Y')
+             getstor sz=f.dbfr1l,dp=dbfr2a
+             xc    0(4,r1),0(r1)
+             xc    dbfr2dl,dbfr2dl     clear length field
+           endif
+         endif
+         if    (lt,r8,0(r9),z)         end of data
+           trclog 'E35 eod'
+           SortXRtn 8
+         endif
+* r8 -> record
+         using SortRec,r8
+ ago .x35t1n
+         trcblk
+         strmake logr,'sr ',(sortrec,8,c2x),(sortrec+8,20)
+         trclog ,
+         trcblke
+.x35t1n anop
+* get front or only part
+         lh    r3,Sortrrdw
+         ahi   r3,-sortrpfl            - rdw and extension field
+         st    r3,dbfr1dl
+         strcopy from=(sortrdata,(r3)),to=(f.dbfr1da,(r3))
+* add extension if present (reconstruct record)
+         if    (lt,r7,sortrxra,nz)     -> extension area
+           using  sortxrec,r7
+           l     r4,dbfr1da            -> build-up area
+           a     r4,dbfr1dl            -> extension data
+           trclog 'longvar'
+           l     r3,sortxdsz           extension data size
+           l     r1,dbfr1dl            base data size
+           ar    r1,r3
+           st    r1,dbfr1dl            total data size
+           strcopy from=(sortxdata,(r3)),to=((r4),(r3))
+           drop  r7
+           la    r2,sortxpfl(,r3)      plus prefix
+           Freemain RC,lv=(2),a=(7)    release extension
+           if    (ltr,r15,r15,nz)
+             st    r2,dw
+             lr    r2,r15
+             st    r7,dw+4
+             strmake logr,'sort fm error ',(r2,,cvdr,8),               c
+               ' sz ',(dw,4,c2d,6),' at ',(dw+4,4,c2x),lr=r2
+             mvc   reason,logr
+             st    r2,reasonl
+             mvc   rc,=a(16)
+             trclog ,
+             SortXrtn 16
+           endif
+           trcblk ,                    reconstructed record
+           strmake wrk1k,'rr ',(dbfr1dl,4,c2d,5),                      c
+               ' ',(f.dbfr1da,f.dbfr1dl,,250),lr=r2
+           rxsay wrk1k,(r2)
+           trcblke
+         endif
+         sr    r6,r6                   default - write rexx var
+
+* NODUP handler
+         if    (cli,nodup,eq,c'Y')
+*          compare new against previous
+           if    (dbfr1dl,eq,dbfr2dl)  first test length
+             trcblk
+             l     r2,dbfr2da          sorted record
+             strmake wrk1k,'d2 ',(dbfr2dl,4,c2d,5),                    c
+               ' ',((r2),f.dbfr2dl,,250),lr=r2
+             rxsay wrk1k,(r2)
+             lm    r2,r3,dbfr1da
+             lm    r4,r5,dbfr2da
+             if    (=c'WJ.AM.CNTL2',eq,0(r2)),                         c
+               and,(=c'WJ.AM.CNTL2',eq,0(r4))
+               strmake wrk1k,'1: ',((r3),,cvdr,5),' ',((r2),(r3)),lr=r2
+               rxsay wrk1k,(r2)
+               strmake wrk1k,'2: ',((r5),,cvdr,5),' ',((r4),(r5)),lr=r2
+               rxsay wrk1k,(r2)
+             endif
+             trcblke
+             l     r3,dbfr1dl
+*            ahi   r3,-1
+             STRCOMP (f.dbfr1da,(r3)),(f.dbfr2da,(r3))
+           endif
+* if same then do nothing
+           if    (eq)                  test STRCOMP or length
+             trclog 'dup detected'
+             la    r6,1                set 'duplicate'
+           endif
+* save new record for next nodup test
+           l     r3,dbfr1dl          data length
+           strcopy from=(f.dbfr1da,(r3)),to=(f.dbfr2da,(r3))
+           st    r3,dbfr2dl          save length length
+         endif
+
+* write rexx var if all is ok
+         if    (ltr,r6,r6,z)
+           llc   r2,pname_dl
+           bctr  r2,0                    drop '#'
+           #subr call,RxPut,pl=subrpl,                                 c
+               parm=(varname,(r2),f.dbfr1da,f.dbfr1dl)
+           lr    r5,r15                  rc
+           if    (ltr,r5,r5,nz)
+             mvi   rc+3,8
+             SortXRtn 16
+           endif
+         endif
+*
+         SortXRtn 4
+         ltorg
+         pop   using
+*-
+* Internal sort
+* Sort element: al4(next),al4(data-length),c'data'
+*-
+srtiblok dsect
+srtinext ds    al4
+srtiprev ds    al4
+srtidlen ds    al4
+srtipfxl equ   *-srtiblok
+srtidata ds    0c
+srtiold  using  srtiblok,r4
+srtinew  using  srtiblok,r8
+*
+SortInt  #subr xprolog=SubrProl,epilog=sortintq xepilog=SubrEpil
+         xc    srtiflds(srtifldl),srtiflds
+
+* Load stem or stack to area
+         xc    dw,dw
+         mvc   dw+4(4),namenum         names
+         if    (cli,stack,eq,c'Y')
+           mvc   dw+4(4),stackcnt      or stack
+         endif
+         cvb   r6,dw                   number of entries
+         zap   stemnum,p0
+         if    (cli,stack,ne,c'Y')
+           llc   r1,pname_dl
+           bctr  r1,0
+           stc   r1,pname_dl
+         endif
+*
+         do    over(r6)  forever
+*          get next data
+           if    (cli,stack,ne,c'Y')
+             ap    stemnum,p1
+             RxStemName stema=wrkname,base=(pname,b.pname_dl),         c
+               pnum=stemnum
+             lr    r2,r0               name length
+           endif
+           #subr call,RxGet,parm=(wrkname,(r2)),pl=exitpl
+           if    (cfi,r15,eq,1),then=iterate   data no match
+           if    (ltr,r15,r15,nz),or,(rc,ne,zero),then=(#subrend,8)
+           lr    r7,r1               -> buffer
+           l     r9,0(r7)            data length
+
+* create entry
+           la    r2,srtipfxl(,r9)      +prefix = getmain size
+           lr    r0,r2
+           #subr call,Getmain
+           lr    r3,r15
+           if    (ltr,r3,r3,nz),then=(#subrend,8)
+           lr    r8,r1                 address
+
+           xc    srtinew.srtinext(srtipfxl),srtinew.srtinext
+*          copy incl length field
+           strcopy from=((r7),4(r9)),to=(srtinew.srtidlen,4(r9))
+
+* add entry to list
+           if    (lt,r4,srticsr,z)     first entry?
+             st    r8,srtihead         set as first entry addr
+             st    r8,srtitail         set as last entry addr
+             st    r8,srticsr          set as latest entry addr
+             mvc   srtinum,a1          init counter
+             trclog 'initial'
+             iterate
+           endif
+
+* lower than first?
+           l     r4,srtihead
+           StrComp (srtinew.srtidata,(r9)),                            c
+               (srtiold.srtidata,f.srtiold.srtidlen)
+           if    (eq),and,(cli,nodup,eq,c'Y'),then=iterate
+           if    (l)                   if lt
+             st    r4,srtinew.srtinext store in new
+             st    r8,srtiold.srtiprev store in old
+             st    r8,srtihead         new first
+             st    r8,srticsr          set as latest entry addr
+             counter srtinum,1         increase count
+             trclog 'before first'
+             iterate
+           endif
+
+* greater than last?
+           l     r4,srtitail
+           StrComp (srtinew.srtidata,(r9)),                            c
+               (srtiold.srtidata,f.srtiold.srtidlen)
+           if    (eq),and,(cli,nodup,eq,c'Y'),then=iterate
+           if    (nl)                  if gt
+             st    r4,srtinew.srtiprev store in new
+             st    r8,srtiold.srtinext store in latest
+             st    r8,srtitail         new last
+             st    r8,srticsr          update cursor
+             counter srtinum,1         increase count
+             trclog 'after last'   <<--
+             iterate
+           endif
+
+* scan for insertion point (new-data lt inlist-data)
+* r8 -> new entry, r9 = entry length, r4 -> old entry, r5 = old length
+           l     r4,srticsr
+           StrComp (srtinew.srtidata,(r9)),                            c
+               (srtiold.srtidata,f.srtiold.srtidlen)
+           if    (gt)
+             trcblk
+             strmake logr,'scan from cursor ',(srticsr,,c2x)
+             trclog ,
+             trcblke
+           else
+             trcblk
+             strmake logr,'scan from first  ',(srtihead,,c2x)
+             trclog ,
+             trcblke
+             l     r4,srtihead
+           endif
+
+           do    forever
+             lr    r5,r4
+             icm    r4,15,srtiold.srtinext
+             st    r4,fw
+             counter dclcc,1
+             StrComp (srtinew.srtidata,(r9)),                          c
+               (srtiold.srtidata,f.srtiold.srtidlen)
+*            insert if low
+             if    (eq),and,(cli,nodup,eq,c'Y'),then=leave
+             if    (l)                   add after latest
+               lr    r4,r5
+               trclog 'low, inserted before'
+               l     r2,srtiold.srtinext
+               mvc   srtinew.srtinext,srtiold.srtinext copy next
+               st    r8,srtiold.srtinext
+               st    r4,srtinew.srtiprev
+               st    r8,srticsr          set as latest entry addr
+               lr    r4,r2
+               st    r8,srtiold.srtiprev
+               counter srtinum,1         increase count
+               leave
+             endif
+           enddo
+* end of list
+         enddo
+
+* write to stem or stack, ascending or descending
+         if    (cli,descnd,eq,c'Y')
+           l     r8,srtitail
+           la    r7,srtiprev-srtiblok
+         else
+           l     r8,srtihead
+           la    r7,srtinext-srtiblok
+         endif
+         l     r6,srtinum              number of entries
+         zap   stemnum,p0
+         using srtiblok,r8
+         do    over(r6)
+           if    (cli,tostack,ne,c'Y')
+             ap    stemnum,p1
+             RxStemName stema=wrkname,base=(pnewname,b.pnewname_dl),   c
+               pnum=stemnum
+             lr    r2,r0                 name length
+           endif
+           #subr call,RxPut,pl=exitpl,                                 c
+               parm=(wrkname,(r2),srtidata,f.srtidlen)
+           ar    r8,r7                 next of prev
+           l     r8,0(,r8)
+         enddo
+         drop  r8
+* return
+         #subr exit
+* internal epilog
+Sortintq #subr label
+         trclog 'Free list'
+         using srtiblok,r8
+         l     r8,srtihead
+         l     r6,srtinum              number of entries
+         do    over(r6)
+           l     r7,srtinext
+*r1 -> area, r0 = size
+           lr    r1,r8
+           l     r0,srtidlen
+           ahi   r0,srtipfxl
+           #subr call,Freemain
+           lr    r8,r7
+         enddo
+         drop  r8
+         #subr call,SubrEpil
+         #subr exit
+*
+         #subr drop
+
+*-
+* Make list of selected variable names
+* The variable name / list is passed in the pname field.
+*-
+MKVNL    #subr xprolog=SubrProl,xepilog=SubrEpil,base=r11
+         if    (vlblkfa,eq,zero)      if 1st time around
+           #subr call,GetVlBlk        get new block
+         endif
+
+* if stack then add one pseudo-variable name
+         if    (cli,stack,eq,c'Y')
+           mvc   varname(7),=cl7'0STACK'    pseudo variable name
+           mvi   pname_dl,7
+           la    r1,varname
+           la    r0,7
+           sr    r15,r15
+           #subr Call,MKVNLA
+           if    (cfi,r15,eq,1),then=(#subrend,20)
+           l     r1,nlstfrst
+           st    r1,vlbenext-vlbeblok(,r1)  next=same
+           #subr exit,rc=0 (r15)
+         endif
+
+* make option list by name
+         xc    nametype,nametype
+         lb    r9,pnamecnt
+         lr    r5,r9
+         do    from=(r8,1),to=(r9),by=1
+           StrWord pname,b.pname_dl,(r8) r1 -> word, r0 = length.
+*          save address and length
+           lr    r15,r8
+           bctr  r15,0                 offset
+           sll   r15,3                 *8
+           la    r14,namedefs
+           ar    r14,r15
+           st    r1,0(,r14)
+           st    r0,4(,r14)
+*          get and save type
+           lr    r6,r1
+           lr    r7,r0
+           la    r15,nametype-1(r8)    name type list pos
+           #subr call,setvopt
+         enddo
+         if    (cli,pnamecnt,eq,1),then=(mvc,nameopts,nametype)
+         trcblk
+         strmake logr,'nametype ',(nametype,,c2x)
+         trclog
+         strmake logr,'namedefs ',(namedefs,32,c2x)
+         trclog
+         trcblke
+
+* 1. pull descrete and numstem
+         lb    r9,pnamecnt
+         lr    r5,r9
+         do    from=(r8,1),to=(r9),by=1
+           la    r2,nametype-1(r8)     -> name type in list
+           if    (tm,0(r2),o_descvar+o_numstem,z),then=iterate
+           bctr  r5,0                  count down namecount
+           lr    r15,r8
+           bctr  r15,0                 offset
+           sll   r15,3                 *8
+           la    r14,namedefs
+           ar    r14,r15
+           lm    r6,r7,0(r14)
+*          descrete
+           if    (tm,0(r2),o_descvar,o)
+             trclog 'pull descrete'
+             lr    r1,r6
+             lr    r0,r7
+             la    r15,1               add ordered
+             #subr call,MKVnlA
+             if    (nz),then=(#subrend,(r15))
+*          num-stem
+           else
+             trclog 'pull numstem'
+             bctr  r7,0                drop '#'
+             Strmake wrkname,((r6),(r7)),'0',lr=r2
+             if    (tm,pgmopts,o_lists0,o)  stem.0 too?
+               la    r1,wrkname
+               lr    r0,r2
+               #subr Call,MKVnlA
+               if    (nz),then=leave
+             endif
+             #subr call,rxgetx,parm=(wrkname,(r2)),pl=exitpl
+             l     r2,dbfr1a
+* test content of stem.0 is a number
+             StrTest str=(4(,r2),f.vardatal),test=num
+             if    (ltr,r15,r15,nz)
+               strmake logr,'stem.0 is not a number',lr=r2
+               mvc   reason,logr
+               st    r2,reasonl
+               mvc   rc,=a(8)
+               #subr exit,rc=f.rc
+             endif
+*
+             strd2c from=(4(r2),f.vardatal),reg=r4 r4=count (stem.0)
+             zap   stemnum,p0
+             do    over(r4)
+               ap    stemnum,p1
+               strmake wrkname,((r6),(r7)),(stemnum,4,p2n),lr=r2
+               sr    r15,r15           set fifo
+               if    (cli,pnamecnt,ne,1)
+                 la    r15,1           set ordered
+               endif
+               la    r1,wrkname
+               lr    r0,r2
+               #subr Call,MKVnlA
+               if    (nz),then=leave
+             enddo
+             la    r7,1(,r7)           reinstate length
+           endif
+         enddo
+
+* 2. pull rest, mask and genstem
+         if    (ltr,r5,r5,nz)
+           trclog 'pull mask and genstem'
+           lb    r9,pnamecnt
+           do    forever
+             #subr call,RxvNxt        sets varname and varnamel
+             if    (cfi,r15,eq,1),then=leave
+             do    from=(r8,1),to=(r9),by=1
+               la    r2,nametype-1(r8)    -> name type in list
+               if    (tm,0(r2),o_maskvar+o_genstem,z),then=iterate
+               lr    r15,r8
+               bctr  r15,0                 offset
+               sll   r15,3                 *8
+               la    r14,namedefs
+               ar    r14,r15
+               lm    r6,r7,0(r14)
+*              mask
+               if    (tm,0(r2),o_maskvar,o)
+                 STRPATRN data=(varname,f.varnamel),mask=((r6),(r7))
+                 if    (ltr,r15,r15,nz)
+                   trclog 'mask no-match'
+                   iterate
+                 endif
+*              generic stem
+               else
+                 trclog 'genstem'
+                 if    (c,r7,gt,varnamel),then=iterate
+                 lr    r1,r7
+                 bctr  r1,0
+                 j     *+10
+                 clc   varname(*-*),0(r6)
+                 if    (ex,r1,*-6,ne)
+                   trclog 'genstem no-match'
+                   iterate
+                 endif
+               endif
+*              bypass if self, unless forced
+               sr    r15,r15
+               if    (=c'REXXVARS_',eq,varname),                       c
+               and,(tm,pgmopts,o_listself,z),then=(la,r15,1) drop
+               if    (ltr,r15,r15,z)
+                 la    r1,varname
+                 l     r0,varnamel
+                 la    r15,1            add ordered
+                 #subr call,MKVnlA
+                 if    (nz),then=(#subrend,(r15))
+               endif
+             enddo
+           enddo
+         endif
+
+* process LAST
+         if    (cli,plast_dl,ne,0),and,(nlstnum,gt,last)
+           l     r5,nlstnum
+           s     r5,last
+           l     r4,nlstfrst
+           do    over(r5)
+             l    r4,vlbenext-vlbenext(,r4)
+           enddo
+           st    r4,nlstfrst
+         endif
+*
+         #subr exit,rc=f.rc
+         #subr drop
+
+*-
+* Add name to single-linked list
+* at entry: r1 -> name, r0 = l'name , r15=0 => fifo, r15=1 => ordered
+*-
+MKVNLA   #subr xprolog=SubrProl,xepilog=SubrEpil
+*KVNLA   #subr label
+         lr    r8,r1                  name address
+         lr    r7,r0                  name length
+
+* update name max width
+         if    (c,r7,gt,nlstmaxw),then=(st,r7,nlstmaxw)
+
+* skip and count handling
+         if    (cli,pskip_dl,ne,0)
+           counter skip,-1,reg=r15
+           if    (ltr,r15,r15,nz),then=(#subrend)
+           mvi   pskip_dl,0
+         endif
+         if    (cli,pcount_dl,ne,0)
+           counter count,-1,reg=r15
+           if    (ltr,r15,r15,z),then=(#subrend,1)
+         endif
+*
+         Using VLBBBLOK,r9
+         if    (ltr,r7,r7,z)          null var ?
+           wto   'MKVLA null var'
+           abend 4
+         endif
+         l     r9,vlblkca             -> current VLBB
+* room for name?
+         lr    r4,r7                  variable name length
+         la    r1,vlbehdrl(,r4)       +header
+         if    (c,r1,gt,vlbbfree)     no space
+           l    r2,vlbbfree
+           #subr call,GetVlBlk        get new block
+           lr    r9,r1                use new block
+         endif
+* add to list
+         l     r6,vlbbhiw             -> hi-water mark
+         la    r6,1(,r6)              -> free entry
+         st    r6,fw
+         trcblk
+         strmake logr,'vla ',((r8),(r7),,60),                          c
+               ' a=',(fw,,c2x),' f=',(vlbbfree,,c2d,6)
+         trclog ,
+         trcblke
+         Using VLBEblok,r6
+         xc    vlbehdr(vlbehdrl),vlbehdr
+         stc   r4,vlbelen              store in entry
+         bctr  r4,0
+         j     *+10
+         mvc   vlbename(*-*),0(r8)
+         ex    r4,*-6
+         la    r2,5(r4,r6)             new hiw
+         st    r2,vlbbhiw              new hi-water mark
+         la    r1,6(,r4)               length + l'field + l'next
+         l     r2,vlbbfree
+         sr    r2,r1
+         st    r2,vlbbfree             update free
+         lh    r2,vlbbenum             update
+         la    r2,1(,r2)                name
+         sth   r2,vlbbenum               count
+         ap    namenum,p1              update name count
+
+* chain new entry, r6 -> new entry
+         if    (lt,r4,nlstfrst,z)      first entry?
+           st    r6,nlstfrst           set as first entry addr
+           st    r6,nlstlast           set as last entry addr
+           st    r6,nlstcsr            set as latest entry addr
+           mvc   nlstnum,a1            init counter
+           trclog 'as first'
+           #subr exit
+         endif
+         drop  r6
+
+* add un-ordered (fifo) at the end, r6 -> new entry
+         l     r15,4(,r13)             -> old savearea
+         if    (lt,r15,16(,r15),z)     z=fifo
+           l     r5,nlstlast           current last
+           st    r6,vlbenext-vlbeblok(r5) set next in current
+           st    r6,nlstlast           update last
+           st    r6,nlstcsr            set as latest entry addr
+           counter nlstnum,1           increase count
+           trclog 'fifo last'
+           #subr exit
+         endif
+
+* add ordered, r4 -> previous, varname = new
+         using VLBEblok,r4
+* greater than last?
+         l     r4,nlstlast
+         StrComp ((r8),(r7)),(vlbename,b.vlbelen)
+         if    (nl)                    if gt or eq
+           l     r5,vlbenext-vlbeblok(r4)
+           st    r6,vlbenext-vlbeblok(r4)
+           st    r5,vlbenext-vlbeblok(r6)
+           st    r6,nlstlast           update last
+           st    r6,nlstcsr            set as latest entry addr
+           counter nlstnum,1           increase count
+           trclog 'after last'
+           #subr  exit
+         endif
+* lower than first?
+         l     r4,nlstfrst
+         StrComp ((r8),(r7)),(vlbename,b.vlbelen)
+         if    (l)                     if lt
+           st    r4,vlbenext-vlbeblok(r6) store in new
+           st    r6,nlstfrst           update first
+           st    r6,nlstcsr            set as latest entry addr
+           counter nlstnum,1           increase count
+           trclog 'before first'
+           #subr  exit
+         endif
+* scan for insertion point (varname lt listname)
+         l     r5,nlstcsr
+         StrComp ((r8),(r7)),                                          c
+               (vlbename-vlbeblok(r5),b.vlbelen-vlbeblok(r5))
+         if    (gt)
+           lr    r4,r5                 use latest as start
+           trcblk
+           strmake logr,'scan from cursor ',(nlstcsr,,c2x)
+           trclog ,
+           trcblke
+         else
+           trclog 'scan from first'
+           l     r4,nlstfrst
+         endif
+
+         do    forever
+           lr    r5,r4                 save address
+           icm   r4,15,vlbenext
+           st    r4,fw
+           if    (ltr,r4,r4,z)
+             st    r5,fw
+             mvi   trace,c'Y'          force dump
+             #subr call,dumpvlbs
+             strmake logr,'**null ptr, r5=',(fw,,c2x),+4,lr=r2
+             sll   r2,16
+             st    r2,logrl
+             la    r1,logrl
+             sr    r0,r0
+             svc   35                  wto
+             abend 2
+             trclog ,
+             #subr exit,rc=20
+           endif
+           StrComp ((r8),(r7)),(vlbename,b.vlbelen)
+           if    (l)                   add after latest
+             stcm  r4,15,vlbenext-vlbeblok(r6)
+             stcm  r6,15,vlbenext-vlbeblok(r5)
+             st    r6,nlstcsr          set as latest entry addr
+             counter nlstnum,1         increase count
+             trcblk
+             strmake logr,'inserted at ',(nlstcsr,,c2x)
+             trclog ,
+             trcblke
+             #subr exit
+           endif
+         enddo
+         drop  r4
+
+         trclog 'logerr 2'
+         #subr exit
+         #subr drop
+*-
+* Set variable type
+* At entry: r1 -> name, r0 = length, r15 -> option byte
+* At exit:  r0 = length (might have been adjusted)
+*-
+SetVopt  #subr
+         lr    r6,r1                   -> field
+         lr    r7,r0                   length
+         lr    r8,r15                  -> option byte
+         ni    0(r8),255-o_varopts     reset variable options
+*- test for mask
+         StrLocCh ((r6),(r7)),c'%',c'*',c'>',c'?',c'''',c'\'
+         if    (ltr,r1,r1,nz)
+           oi    0(r8),o_maskvar
+           Strmake logr,'setvopt mask'
+           trclog ,
+           lr    r0,r7
+           #subr exit
+         endif
+*- test for numeric stem, i.e. CARS.#
+         lr    r1,r6
+         ar    r1,r7
+         ahi   r1,-2                 -> last 2 bytes of name
+         if    (=c'.#',eq,0(r1))
+           oi    0(r8),o_numstem
+           bctr  r7,0                set length at '.'
+           Strmake logr,'setvopt num-stem'
+           trclog ,
+           lr    r0,r7
+           #subr exit
+         endif
+*- test for generic stem, i.e. TEXT.
+         lr    r1,r6
+         ar    r1,r7
+         bctr  r1,0                  -> last byte of name
+         if    (cli,0(r1),eq,c'.')
+           oi    0(r8),o_genstem
+           Strmake logr,'setvopt gen-stem'
+           trclog ,
+           lr    r0,r7
+           #subr exit
+         endif
+*- gotta be descrete
+         Strmake logr,'setvopt descrete'
+         trclog ,
+         oi    0(r8),o_descvar
+         lr    r0,r7
+         #subr exit
+*-
+         #subr drop
+
+*-
+* Obtain new varlist block - layout, see the VLBxBLOK dsects
+*-
+GetVlBlk #subr
+*
+         STORAGE OBTAIN,LENGTH=&storsz,loc=31,cond=YES ,bndry=PAGE
+         if    (ltr,r15,r15,nz)
+           rxsay   '***Could not obtain &storsz'
+           abend 1
+         endif
+         lr    r4,r1                   -> area
+         trclog 'getvlblk acq &storsz ok'
+         using VLBBblok,r4
+         if    (lt,r2,vlblkca,z)       1st time around?
+* init 1st name block, r4 -> block
+           trclog 'first vlblk'
+           st    r4,vlblkfa            set 1st block addr
+           st    r4,vlblkca            is also current block addr
+           xc    0(vlbbhdrl,r4),0(r4)
+           mvi   VLBBid+1,1
+           mvi   vlblkn+1,1
+           mvc   VLBBenum,=al2(2)
+ ago .GetVlBlk1n
+* init low and high presets
+           la    r1,VLBBent
+           using VLBEblok,r1
+*          low
+           st    r1,nlsthead
+           st    r1,nlstcsr
+           mvi   vlbelen,4
+           mvc   vlbename(4),zero
+           la    r14,vlbename+4
+           st    r14,vlbenext
+*          high
+           st    r14,nlsttail
+           lr    r1,r14
+           mvi   vlbelen,4
+           mvc   vlbename(4),=4x'FF'
+           la    r14,vlbename+4        update
+           st    r14,VLBBhiw            hi-water mark
+           lr    r15,r4                set
+           ahi   r15,&storsz            free
+           sr    r15,r14                 number
+           st    r15,VLBBfree             of bytes
+           drop  r1
+.GetVlBlk1n anop
+         else
+* chain block to previous
+           st    r4,VLBBnext-VLBBblok(,r2) set next ptr in current
+           xc    0(vlbbhdrl,r4),0(r4)
+           st    r4,vlblkca            set current block addr
+           lh    r1,vlblkn             increase
+           la    r1,1(,r1)              number
+           sth   r1,vlblkn               of blocks
+           sth   r1,VLBBid             set as block id
+         endif
+           la    r1,vlbbent-1          set
+           st    r1,vlbbhiw             hi-water-mark
+           lgfi  r1,&storsz-vlbbhdrl   set
+           st    r1,vlbbfree            free space
+*
+         TrcBlk
+         Strmake logr,'getvlblk n=',(vlblkn,2,c2d,4),                  c
+               ' a=',(vlblkca,4,c2x),                                  c
+               ' h=',(vlbbhiw,4,c2x),' f=',(vlbbfree,4,c2x)
+         trclog ,
+         trcblke
+*
+         #subr call,dumpvlbs
+*
+         lr    r1,r4                   block addr
+         drop  r4
+         #subr exit
+         #subr drop
+
+*-
+* Get storage, r0=size, r1->address/size pair
+* at entry:  r0=requested minimum size, r1-> dbfrpmap
+* at exit :  r0=adjusted size, r1->address
+*-
+dbfrpmap dsect
+dbfrpba  ds    a                       buffer address
+dbfrpbl  ds    a                       buffer size
+dbfrpda  ds    a                       data area address in buffer
+dbfrpdl  ds    a                       data size address in buffer
+dbfrplen equ   *-dbfrpmap
+*-
+GetStor  #subr
+         using dbfrpmap,r9
+         lr    r9,r1
+         lr    r8,r0                   req size
+* previously acquired storage already big enough?
+         if   (c,r8,le,dbfrpbl),then=(#subrend)
+* drop previously acquired storage
+         if   (lt,r1,dbfrpba,nz)
+           l     r0,dbfrpbl
+           #subr call,Freemain
+         endif
+* acquire
+         srl   r8,8                    adjust size
+         sll   r8,8                      to lower 256
+         ahi   r8,512                  add some slack
+         lr    r0,r8
+         #subr call,Getmain
+         if    (ltr,r5,r15,nz)
+           sr   r1,r1
+           xc   dbfrpmap(dbfrplen),dbfrpmap
+           #subr exit,rc=8
+         endif
+         st    r8,dbfrpbl              store size in DBFRxL
+         st    r1,dbfrpba              store address in DBFRxA
+         using dbfrmap,r1
+         la    r14,dbfrdata
+         st    r14,dbfrpda             data area address in DBFRxDA
+         drop  r1
+         xc    dbfrpdl,dbfrpdl         clear data size in DBFRxDL
+         l     r1,dbfrpba              load buffer address
+         l     r0,dbfrpbl              load buffer asize
+         #subr exit,rc=0
+         #subr drop
+
+*-
+* drop acquired data buffer, r1 -> a(adress,length)
+*-
+RelStor  #subr
+         lr    r9,r1
+         if    (lt,r1,0(,r9),z),then=(#subr,exit)
+         l     r0,4(,r9)
+         #subr call,freemain
+         xc    0(8,r9),0(r9)
+         #subr exit
+         #subr drop
+
+*-
+* Get storage, r0=size
+* Returns r15 = rc, r1 = address if r15=0
+*-
+GetMain  #subr
+         lr    r9,r0
+         Getmain RC,lv=(9),loc=31
+         lr    r8,r1
+         if    (ltr,r5,r15,nz),or,(cli,trace,eq,c'Y')
+           strmake logr,'Getmain rc ',(r5,,cvdr,6),                    c
+               ' sz ',(r9,,cvdr,6)
+           if    (ltr,r5,r5,z)
+             st    r8,fw
+             strmake ,' at ',(fw,4,c2x)
+           endif
+           if    (ltr,r5,r5,nz)
+             reason logr,8
+           endif
+           if    (cli,trace,eq,c'Y')
+             trclog ,
+           endif
+           if    (ltr,r5,r5,nz),then=(#subrend,(r5))
+         endif
+         lr    r1,r8
+         #subr exit
+         #subr drop
+
+*-
+* drop acquired data buffer, r1 -> area, r0 = size
+*-
+Freemain #subr
+         lr    r8,r1
+         lr    r9,r0
+         Freemain RC,lv=(r9),a=(r8)
+         lr    r3,r15
+         trcblk
+         st   r8,fw
+         strmake logr,'Freemain rc ',(r3,,cvdr,6),                     c
+               ' sz ',(r9,,cvdr,6),' at ',(fw,,c2x)
+         trclog ,
+         trcblke
+         #subr exit,rc=(r3)
+         #subr drop
+
+*-
+* Get next REXX var
+* Rc  1  eof
+*-
+RxVNxt   #subr
+         RxVNext name=varname,data=(0,0)
+         lr    r7,r15
+         mvc   varnamel,zrx_ShVbVnl    copy name length
+         mvc   vardatal,zrx_ShVbVbl    copy data length
+* trace
+         trcblk
+         strmake logr,'rxvnxt rc ',(r7,,cvdr,8),                       c
+               ' ret ',(zrx_shvret,1,c2x)
+         if    (cfi,r7,ne,1)
+           strmake ,+1,(varnamel,4,cvd,3),                             c
+               +1,(zrx_ShVbVbl,4,cvd,5),                               c
+               +1,(varname,f.varnamel,,40)
+         endif
+         trclog ,
+         trcblke
+         mvc   reason,logr
+* end of list ?
+         sr    r3,r3
+         if    (tm,zrx_shvret,zrx_eof,o),or,(cfi,r7,eq,1),             c
+               then=(la,r3,1)
+         #subr exit,rc=(r3)
+         #subr drop
+*-
+* Get rexx data
+* at entry: r1 -> a(varname,l'varname)
+* returned data is defined by the dbfr1a/dbfr1l pair.
+* at exit:
+*   r15 = 0     ok, r0 = datalength
+*   r15 = 1     read ok, but datamask did not match
+*   r15 = 9     eof - also pseudo code for stack
+*   r15 = 9     eof - also pseudo code for stack
+*   r0  = data length if r15 = 0
+*   r1  = data address if r15 = 0
+*-
+RxGet    #subr
+         lr    r9,r1
+         #subr call,RxGetx
+         if    (nz),then=(#subrend,(r15))
+         lr    r3,r15                  rc
+         lr    r6,r1                   buffer address
+         lr    r7,r0                   data length
+* filter by data ?
+         if    (cli,ondata_dl,eq,0)    nope
+           #subr exit,rc=(r3)
+         endif
+         STRPATRN data=(4(,r6),(r7)),mask=(ondata,b.ondata_dl)
+         if    (ltr,r15,r15,nz)
+           trclog 'no-datamatch'
+           sp    getnum,p1
+           #subr exit,1
+         else
+           trclog 'datamatch'
+         endif
+         lr    r1,r6
+         lr    r0,r7
+         #subr exit,rc=(r3)
+         #subr drop
+
+* at entry: r1 -> a(varname,l'varname)
+* returned data is defined by the dbfr1a/dbfr1l pair.
+RxGetx   #subr
+         lr    r9,r1
+         lm    r4,r5,0(r9)
+* get from actual stack
+         if    (cli,stack,eq,c'Y')
+           trclog 'getx stack'
+           if    (cp,getnum,eq,stackcnt)
+             trclog 'getx stack end'
+             #subr exit,rc=9
+           endif
+           RxStack pull                r1 -> data, r0 = length
+           if    (ltr,r3,r15,nz)
+             trclog 'getx stack error'
+             setrc 20
+             #subr exit,rc=20
+           endif
+           lm    r6,r7,dbfr1a          bfr addr / len
+           lr    r4,r1                 data address
+           lr    r5,r0                 data length
+           st    r5,vardatal           save len in field
+           st    r5,dbfr1dl
+*          increase data buffer size if needed
+           la    0,4(,r5)
+           if    (c,r0,gt,dbfr1l)
+             getstor sz=(r0),dp=dbfr1a
+             if    (nz),then=(#subrend,(r15))
+             lm    r6,r7,dbfr1a        new bfr addr / len
+           endif
+           la    r1,4(,r6)
+           st    r1,dbfr1da
+           st    r5,0(r6)              save len in buffer
+*          copy
+           strcopy from=((r4),(r5)),to=(4(r6),(r5))
+           trcblk
+           strmake logr,reg=r8,'RxGetStk rc ',(r3,,cvdr,8)
+           if    (ltr,r3,r3,z)
+             strmake ((r8)),' "',(4(r6),f.0(r6),,60),'"',reg=r8
+           endif
+           trclog ,
+           trcblke
+         else
+* get from variable
+           if    (cli,0(r4),eq,x'FF'),then=(#subrend,9)  last
+           do    ,
+             lm    r6,r7,dbfr1a        address and size of buffer
+             ahi   r7,-4               -prefix
+             la    r2,4(,r6)           past prefix
+             st    r2,dbfr1da
+             RxVGet name=((r4),(r5)),data=((r2),(r7))
+             lr    r3,r15              rc
+             lr    r7,r0               data length
+             st    r7,vardatal         save it
+             st    r7,dbfr1dl          save it
+             st    r7,0(,r6)           save as prefix in buffer
+             trcblk
+             strmake logr,reg=r14,'rxget rc ',(r3,,cvdr,6),            c
+               +1,(zrx_SHVRET,4,c2x),                                  c
+               ' "',((r4),(r5),,30),'" l=',(vardatal,,c2d,6)
+             if    (ltr,r3,r3,z)
+               strmake ((r14)),' "',(f.dbfr1da,f.vardatal,,60),'"'
+             endif
+             trclog ,
+             trcblke
+             if    (ltr,r3,r3,z),then=leave
+             if    (tm,zrx_ShVRet,zrx_trunc,o)  truncation
+               l    r2,zrx_datal
+               trcblk
+               strmake logr,'truncation - redrive get for sz ',        c
+               (r2,,cvdr,6)
+               trclog ,
+               trcblke
+               Getstor sz=(r2),dp=dbfr1a  r1 -> area, r0 = size
+               if    (nz),then=(#subrend,(r15))
+               iterate
+             endif
+             if    (ltr,r3,r3,nz)
+               trclog 'getx - bad rc'
+               #subr exit,rc=8
+             endif
+           enddo
+         endif
+         ap    getnum,p1
+         lr    r0,r7
+         lr    r1,r6
+         #subr exit,rc=(r3)
+         #subr drop
+
+*-
+* Put rexx data from pnewname,b.pnewname_dl
+*-
+RxPut    #subr
+         lm    r4,r7,0(r1)
+         ap    outnum,p1
+* if output to the stack
+         if    (cli,tostack,eq,c'Y')
+           RxStack queue,data=((r6),(r7))
+           if    (ltr,r3,r15,nz)
+             StrMake reason,'RxPut stack rc ',(r3,,cvdr,8)
+             mvi   rc+3,8
+           endif
+           trcblk
+           StrMake logr,'Rxput stack rc ',(r3,,cvdr,8)
+           trclog ,
+           trcblke
+           #subr exit,rc=(r3)
+         endif
+* if name is descrete then use unmodified
+         if    (tm,newnmopt,o_descvar,o)
+           la    r4,pnewname
+           llc   r5,pnewname_dl
+* if newname is a mask
+         elseif (tm,newnmopt,o_maskvar,o)
+           StrByMsk string=((r4),(r5)),  make new name                 c
+               mask=(pnewname,b.pnewname_dl),                          c
+               out=wrkname,pl=wrk1k
+           lr    r2,r0                   copy length
+           if    (ltr,r3,r15,nz)
+             StrMake logr,'STR-BY-MASK rc ',(r3,,cvdr,8),lr=r2,        c
+               ' name=',((r4),(r5),,80)
+             mvc   reason,logr
+             st    r2,reasonl
+             mvi   rc+3,8
+             trclog ,
+             #subr exit,8
+           endif
+           la    r4,wrkname
+           lr    r5,r2
+* if numeric stem
+         elseif  (tm,newnmopt,o_numstem,o)
+           RxStemName base=(pnewname,b.pnewname_dl),                   c
+               pnum=outnum,stema=wrkname
+           la    r4,wrkname
+           lr    r5,r0                 name length
+         endif
+* finally do write
+         #subr call,RxPutx,parm=((r4),(r5),(r6),(r7)),pl=exitpl
+         lr    r3,r15
+         #subr exit,rc=(r3)
+         #subr drop
+
+* direct write, don't update counters
+RxPutx   #subr
+         lm    r4,r7,0(r1)
+         RxVPut name=((r4),(r5)),data=((r6),(r7))
+         lr    r3,r15                 rc
+         if    (ltr,r3,r3,nz)
+           StrMake reason,'RxPut rc ',(r3,,cvdr,8),                    c
+               +1,((r4),(r5),,80)
+           mvi   rc+3,8
+         endif
+         trcblk
+         StrMake logr,'rxput rc ',(r3,,cvdr,6),                        c
+               ' "',((r4),(r5),,30),                                   c
+               '" l=',(r7,,cvdr,6),' "',((r6),(r7),,60),'"'
+         trclog ,
+         trcblke
+         #subr exit,rc=(r3)
+         #subr drop
+
+*-
+* Drop rexx variable
+* at entry: r1 -> a(varname,l'varname)
+*-
+RxVDrop  #subr
+         lm    r4,r5,0(r1)
+         RxvDrop name=((r4),(r5))
+         lr    r2,r15
+         trcblk
+         clear logr
+         strmake logr,'drop ',((r4),(r5),,40),' rc ',(r2,,cvdr,6)
+         trclog ,
+         trcblke
+         ap    delnum,p1
+         #subr exit,rc=(r2)
+         #subr drop
+
+*-
+* Save the stack to internal list
+*-
+StkiMake #subr
+         la    r6,stkianchr
+         sr    r5,r5
+         do    forever
+           RxStack pull                r1 -> data, r0 = length
+           if    (ltr,r15,r15,nz)
+             leave
+           endif
+           lr    r3,r0                 length
+           lr    r4,r1                 -> data
+* add stack entry to list
+           SLNKLST add,size=(r3),addr=(r6),data=((r4),(r3)),sp=132
+           lr    r6,r1
+           la    r5,1(,r5)
+         enddo
+         st    r5,stkicount            save count
+         st    r6,stkilast             set last-ptr
+         clear logr
+         trcblk
+         strmake logr,'stackrecnum ',(stkicount,4,c2d,4),              c
+               ' first ',(stkianchr,,c2x),                             c
+               ' last ',(stkilast,,c2x),lr=r2
+         trclog
+         trcblke
+  ago .stkimake1n
+* show list
+         rxsay 'show list..'
+         l     r8,stkifrst
+         using SLNKLSTBLOK,r8
+         do    over(r5)
+           st    r8,fw
+           clear logr
+           l     r3,SLNKlstsize
+           ahi   r3,-SLNKlstdatao
+           strmake logr,'slnklst ',(fw,,c2x),                          c
+               ' size ',(r3,,cvdr,4),                                  c
+               ' text ',(SLNKlstdata,(r3),,100),lr=r2
+           RxSay logr,(r2)
+           clear logr
+           l     r8,SLNKLSTnext
+         enddo
+         drop  r8
+.stkimake1n anop
+         oi    pgmopts,o_stkimg         remember stack image made
+         #subr exit
+         #subr drop
+
+*-
+* Get next from internal stack image
+*-
+StkiGetN #subr
+* get from stack save
+         if    (stkianchr,eq,zero),then=(#subrend,1)
+*
+         if    (stkicsr,eq,stkilast)
+           trclog 'StkiGetN eol'
+           #subr exit,rc=1
+         endif
+         using slnklstblok,r8
+         if    (lt,r8,stkicsr,z)
+           l     r8,stkianchr
+         else
+           l     r8,SLNKLSTnext
+         endif
+         st    r8,stkicsr
+*
+         trcblk
+         strmake logr,'stkicsr ',(stkicsr,,c2x),lr=r2
+         trclog
+         trcblke
+*
+         l     r1,SLNKlstsize
+         ahi   r1,-SLNKlstdatao
+         lr    r0,r1                 set data size
+         la    r1,SLNKLSTdata        set data addr
+         drop  r8
+         #subr exit,rc=0             rc
+         #subr drop
+
+*-
+* Get direct from internal stack image - r1 = number
+* Returns r0=size, r1->data
+*-
+StkiGetD #subr
+         using slnklstblok,r8
+         lr    r5,r1
+         sr    r6,r6                 preset rc
+*strmake logr,'getd num ',(r5,,cvdr,6),lr=r2
+*rxsay logr,(r2)
+*clear logr
+* get from stack save
+         if    (lt,r8,stkianchr,z),then=(#subrend,1)
+         if    (c,r5,ge,stkicount)   test for last
+*rxsay 'getd ge num'
+           l     r8,stkilast         use last
+           la    r6,2
+         else
+           bctr  r5,0
+           do    over(r5)
+             l     r8,SLNKLSTnext    -> next entry
+           enddo
+         endif
+         if    (ltr,r8,r8,z)         past last
+           l     r8,stkilast         use last
+           la    r6,2
+         endif
+*
+*st    r8,fw
+*strmake logr,'getd addr ',(fw,,c2x),lr=r2
+*rxsay logr,(r2)
+*clear logr
+         l     r1,SLNKlstsize
+         ahi   r1,-SLNKlstdatao
+         lr    r0,r1                 set data size
+         la    r1,SLNKLSTdata        set data addr
+         drop  r8
+         #subr exit,rc=(r6)          rc
+         #subr drop
+
+*-
+* Rewrite the stack from internal image
+*-
+StkiRewr #subr
+         using slnklstblok,r8
+         if    (lt,r8,stkianchr,z),then=(#subrend,0)
+         l     r5,stkicount
+         do    over(r5)
+           l     r3,SLNKlstsize        compute
+           ahi   r3,-SLNKlstdatao        data size
+           la    r2,SLNKLSTdata        data addr
+           RxStack queue,data=((r2),(r3))
+           l     r8,SLNKLSTnext        -> next entry
+         enddo
+*
+         drop  r8
+         #subr exit,rc=0             rc
+         #subr drop
+*-
+* Subroutine prolog / epilog  - do tracing
+* r10 -> global storage
+*-
+SubrProl #subr base=r6
+         ap    sanum,=p'1'
+         if    (zrx_ExComA,eq,zero),then=(#subrend,0)   no REXX
+*
+         TrcBlk
+         l     r3,4(,r13)              reload callers
+         l     r3,64(,r3)                basereg (r11)
+         strmake logr,(14(,r3),8),' ',(sanum,4,p2d,2),' entry',        c
+               lenreg=r2
+         trclog   ,(r2)
+         l     r1,4(,r13)              reload callers
+         lm    r0,r1,20(r1)              r0+r1
+         trcblke
+*
+         #subr exit,rc=0
+         #subr drop
+*
+SubrEpil #subr base=r6
+* r2 = #subr end rc
+         if    (zrx_ExComA,eq,zero),then=(#subrend,(r2))  no REXX
+         lr    r5,r2                   copy rc
+*
+         TrcBlk
+         l     r3,4(,r13)              reload callers
+         l     r3,64(,r3)                basereg
+         strmake logr,(14(,r3),8),' ',(sanum,4,p2d,2),                 c
+               ' exit rc ',(r5,,cvdr,8),lenreg=r2
+         trclog   ,(r2)
+         l     r1,4(,r13)              reload callers
+         lm    r0,r1,20(r1)              r0+r1
+         trcblke
+*
+         sp    sanum,=p'1'
+         #subr exit,rc=(r5)            r5 = original r15
+         #subr drop
+
+*-
+* Dump varname list blocks
+*-
+Dumpvlbs #subr
+         trcblk   ,
+         trclog   ,
+         trclog 'Dump blocks..'
+         strmake logr,'nf=',(nlstfrst,,c2x),' nl=',(nlstlast,,c2x),    c
+               ' nc=',(nlstcsr,4,c2x),' nn=',(nlstnum,4,c2d,8)
+         trclog ,
+         l     r8,vlblkfa
+         using VLBBblok,r8
+         do    until,(lt,r8,VLBBnext,z)
+           st    r8,fw
+           strmake logr,'Id ',(VLBBid,2,c2d,4),' at ',(fw,4,c2x),      c
+               ' next ',(VLBBnext,4,c2x),                              c
+               ' #names ',(VLBBenum,2,c2d,4),                          c
+               ' free ',(VLBBfree,4,c2d,6),                            c
+               ' hiw ',(VLBBhiw,,c2x)
+           trclog   ,
+           strmake logr,=016,'0.......4.......8.......C.......',       c
+               +2,'0.......4.......8.......C.......',                  c
+               +2,'0...4...8...C...',+1,'0...4...8...C...'
+           trclog  ,
+           lr    r4,r8
+           l     r5,VLBBhiw
+           xc    fw,fw
+           do    while,(cr,r4,le,r5)
+             mvc   wrk1k(32),0(r4)
+             tr    wrk1k(32),dumpblkt
+             st    r4,dw
+             strmake logr,(dw,4,c2x),                                  c
+               +1,(fw+2,2,c2x),+2,(0(r4),16,c2x),                      c
+               +2,(16(r4),16,c2x),+2,(wrk1k,16),+2,(wrk1k+16,16)
+             trclog  ,
+             l     r2,fw
+             la    r2,32(,r2)
+             st    r2,fw
+             la    r4,32(,r4)
+           enddo
+         enddo
+         drop  r8
+         trclog   ,
+         trcblke
+         #subr exit
+         #subr drop
+*-
+* dump 32 bytes from r1
+*-
+Dumpentr #subr
+         lr    r2,r1
+         st    r2,dw
+         mvc   wrk1k(32),0(r2)
+         mvc   wrk1k+32(32),wrk1k
+         tr    wrk1k+32(32),dumpblkt
+         clear logr
+         strmake logr,(dw,4,c2x),                                      c
+               +2,(wrk1k+00,4,c2x),+1,(wrk1k+04,4,c2x),                c
+               +1,(wrk1k+08,4,c2x),+1,(wrk1k+12,4,c2x),                c
+               +2,(wrk1k+16,16,c2x),                                   c
+               +2,(wrk1k+32,16),+1,(wrk1k+48,16),lr=r2
+         trclog  ,(r2)
+         clear logr
+         #subr exit
+         #subr drop
+
+*-
+* Dynamic areas
+*-
+LclStor  Dsect
+sanum    ds    xl4                     end of save areas
+*-
+zero     dc    a(0)
+A0       equ   zero,4
+A1       dc    a(1)
+p0       dc    pl4'0'
+p1       dc    pl4'1'
+*-
+fw       ds    f
+dw       ds    d
+rc       ds    a
+editrc   ds    a
+retval   ds    2a(0)                    ->value, l'value
+logrl    ds    a
+logr     ds    cl120
+reasonl  ds    a
+reason   ds    cl120
+stemnum  ds    pl4
+namenum  ds    pl4
+getnum   ds    pl4
+delnum   ds    pl4
+outnum   ds    pl4
+stackcnt ds    pl4
+stackqn  ds    a
+editoutn ds    a
+nametype ds    xl(&namedfn)
+namedefs ds    xl(&namedfn*4*2)
+stemcnt  ds    a
+brifseq  ds    a
+pnamecnt ds    al1
+sortmode ds    c
+pgmopts  ds    x
+o_listlen      equ   x'80'
+o_lists0       equ   x'40'
+o_listself     equ   x'20'
+o_edito        equ   x'10'
+o_stkimg       equ   x'08'              stack image
+nameopts ds    x
+o_maskvar      equ   x'80'
+o_numstem      equ   x'40'
+o_genstem      equ   x'20'
+o_descvar      equ   x'10'
+o_varopts      equ   x'f0'              all 4 variable options
+o_ordered      equ   x'08'
+newnmopt ds    x                        options for newname
+linewdth ds    h
+vlblkfa  ds    a                        -> first area
+vlblkca  ds    a                        -> current area
+vlblkn   ds    h                        number of vl blocks
+nlstfrst ds    a                        -> first namelist entry
+nlstlast ds    a                        -> last namelist entry
+nlstcsr  ds    a
+nlstnum  ds    a
+nlstmaxw ds    a
+*stack save control
+         slnklst ds,prefix=stki
+stkicnum ds    a                        current number
+*
+nwidthv  ds    a
+dbfr1a   ds    a
+dbfr1l   ds    a
+dbfr1da  ds    a
+dbfr1dl  ds    a
+dbfr2a   ds    a
+dbfr2l   ds    a
+dbfr2da  ds    a
+dbfr2dl  ds    a
+srtiflds ds    0a
+srtihead ds    a
+srtitail ds    a
+srticsr  ds    a
+srtinum  ds    a
+srtifldl equ   *-srtiflds
+sortwa   ds    a
+vardataa ds    a
+vardatal ds    a
+datamaxl ds    a
+datatsz  ds    a
+dclcc    ds    a
+count    ds    a
+skip     ds    a
+last     ds    a
+namemaxl ds    a
+maskl    ds    b
+mask     ds    cl80                     save mask for copy
+ispnamel ds    b
+ispname  ds    cl8
+wrknamel ds    b
+wrkname  ds    cl200
+selnamel ds    a
+selname  ds    cl200
+varnamel ds    a
+varname  ds    cl200
+soutdcba QSAM31 dcba
+dfspdcba QSAM31 dcba
+ispphdr  ds    cl56
+*-
+         RexxMacs ds
+         ds    0d
+         StrParse area
+         ds    0a
+sortcntl ds    cl200
+*-
+subrpl   ds    0d
+exitpl   ds    xl(20*4)
+*-
+         ds    0d
+wrk1k    ds    xl1024
+*-
+sa1      ds    (8*18)f                 save areas
+exitsa   ds    (6*18)f                 save areas for exits
+sapooln  ds    0a                      end of save areas
+*-
+LclStorL equ   *-LclStor
+
+         Dsect
+         RexxMacs dsect
+
+* Varlist block header
+VLBBBLOK Dsect
+VLBBhdr  ds    0x                      header
+VLBBnext ds    a                       -> next block
+VLBBid   ds    h                       block id
+VLBBenum ds    h                       number of names in list
+VLBBfree ds    a                       free area
+VLBBhiw  ds    a                       -> last byte of used
+VLBBhdrl equ   *-vlbbblok              header size
+VLBBent  ds    0c                      1st free entry
+* Varlist block entry
+VLBEBLOK Dsect
+VLBEhdr  ds    0x                      header
+VLBEnext ds    al4                     -> next
+VLBElen  ds    al1                     name length
+VLBEhdrl equ   *-vlbehdr               header size
+VLBEname ds    0c                      name
+
+         QSAM31 dsects
+
+         End
+//*
+//L.SYSLMOD DD DISP=SHR,DSN=CBT669.LINKLIB(REXXVARS)
+//L.SYSLIB  DD DISP=SHR,DSN=ISP.SISPLOAD
+//*
+//* Production version is in linklist
+//*
+//IVP1     EXEC PGM=IKJEFT1B,PARM='ISPSTART CMD(RXRV&IVP)'
+//STEPLIB  DD DISP=SHR,DSN=CBT669.LINKLIB
+//SYSEXEC  DD DISP=SHR,DSN=CBT669.PP.REXXVARS.LIB
+//ISPLOG   DD SYSOUT=*,RECFM=VA,LRECL=125,BLKSIZE=129
+//SYSTSPRT DD SYSOUT=*,OUTLIM=2000
+//SYSTSIN  DD DUMMY
+//ISPMLIB  DD DISP=SHR,DSN=ISP.SISPMENU
+//ISPPLIB  DD DISP=SHR,DSN=ISP.SISPPENU
+//ISPSLIB  DD DISP=SHR,DSN=ISP.SISPSENU
+//ISPTLIB  DD DISP=SHR,DSN=ISP.SISPTENU
+//ISPPROF  DD UNIT=SYSDA,SPACE=(TRK,(5,5,4)),RECFM=FB,LRECL=80
+//SORTSNAP DD DUMMY

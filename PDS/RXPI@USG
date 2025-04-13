@@ -1,0 +1,109 @@
+RXPIPE - Users Guide
+
+
+The RXPIPE programs(s)
+
+ RXPIPE    The main program when retaining seperate subprograms.
+ RXPIPEAI  The main program including subprograms.
+ RXPIPEX   Sample pgm to allocate the RXPIPE lib and start the program.
+ RXPIPExx  Subprograms.
+
+ See the section 'Install RXPIPE' later, and the RXPIINS$ member.
+
+
+Using FOREACH
+
+ This sample will get 1 list of members in a pds, then build an
+ IEBUPDTE input stream.
+
+        Rxpipe mbrl MY.PP.RXPIPE.IVPLIB,
+        | include RXPIITX*,
+        | foreach text ./ ADD NAME=&w1 ? < CBT669.PP.RXPIPE.IVPLIB(&w1),
+        | > MY.IEBUPDTE.STREAM
+
+
+Running RXPIPE in batch
+
+ To run RXPIPE in batch, you must allocate the RXPIPE lib(s) to
+ DDname SYSEXEC, plus allocate all other neccessary datasets, just
+ like with any other application.
+
+ Sample JCL
+
+        //GO      EXEC PGM=IKJEFT1B
+        //SYSEXEC  DD DISP=SHR,DSN=site.RXPIPE.LIB           (1)
+        //         DD DISP=SHR,DSN=site.SYSEXEC              (2)
+        //         DD DISP=SHR,DSN=site.RXPIPE.SUBLIB        (3)
+        //STEPLIB  DD DISP=SHR,DSN=site.LINKLIB              (4)
+        //SYSTSPRT DD SYSOUT=*,OUTLIM=2000
+        //SYSTSIN  DD *
+          Rxpipe  +
+             text Kilroy was here +
+           | list Before replace +
+           | replace 'was' 'was never' +
+           | list After replace
+
+   (1)  The RXPIPE program. Must be first to avoid conflict with a
+        customized RXPIPE program.
+   (2)  General SYSEXEC.
+   (3)  Your RXPIPE applications and subroutines.
+   (4)  Non-linklist TSO programs.
+
+
+Subroutines
+
+ It is possible to use RXPIPE subroutines for modifying data and/or
+ handling input and/or output. You should use the RXPIPE1 pgmname for
+ subroutines, assuming that all libraries have been allocated. You
+ can use the 2nd parameter of the RXPIPE pgm to specify a library
+ containing the subroutines, see the documentation in the RXPIPE pgm.
+
+ Sample 1 - using subroutine to filter data
+
+  Main pgm DSL1MAIN
+
+       /* List datasets, use subcommand to filter rexx */
+       cc=Rxpipe("catsearch sys1.*lib fields dsname",
+               "| %dsl1sub",
+               "| term",,
+               "sublib lib.where.sub.is.found")
+
+  Filter subroutine DSL1SUB. Note the vertical bars which specifies
+  reading and rewriting the stack.
+
+       /* RXPIPE subcommand to filter dataset list. rexx */
+       cc=Rxpipe("| include '.SA' |")
+       return 0
+
+ Sample 2 - subroutine to input data
+
+  Main pgm DSL2MAIN
+
+       /* List data provided by subroutine rexx */
+       cc=Rxpipe("%dsl2sub | term",,
+                 "sublib lib.where.sub.is.found")
+
+  Input provider subroutine DSL2SUB Note the vertical bar at the end
+  which specifies write to the stack.
+
+       /* RXPIPE subcommand to provide input data. rexx */
+       cc=Rxpipe("catsearch sys1.sa*lib fields dsname |")
+       return 0
+
+
+Install RXPIPE
+
+ RXPIPE is distributed as several members in pds. The program comes in
+ 2 flavors - RXPIPE main program plus seperate subprograms, and
+ RXPIPEAI which is the main program including subprograms (AI = All
+ Included).
+
+ The pros and cons are:
+  -  RXPIPE is smaller and thus loads faster, and the subprograms can
+     easily be replaced by local versions, as long as the interface
+     stays the same. The downside is that all the programs must be
+     copied to the target lib (if you dont allocate the RXPIPE lib
+     directly to SYSEXEC).
+  -  RXPIPEAI is larger and thus loads somewhat more slowly. But you
+     only need to copy (and rename) one program. Replacing a
+     subcommand is not so easy.

@@ -1,0 +1,9 @@
+History
+004 2022/09/04  The screen stemvar can be indirectly named by
+                by enclosing the name of a variable naming the
+                stem in paranthesis i.e. *ISPDPX01 (pnlstem)
+                or start with an ampersand i.e. *ISPDPX01 &pnlstem
+005 2022/09/07  The screen stemvar is now accessed by REXX services,
+                so the max width can be 120 instead of 8.
+006 2022/09/17  Run as a function to get version info and to copy stack
+                to stem.

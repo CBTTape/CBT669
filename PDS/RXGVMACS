@@ -1,0 +1,334 @@
+*-
+* Macros etc for REXX Global Variables program REXXGBLV
+* Updates
+*  072 Drop NEWNAME in favor of the STRBYMSK macro
+*  073 Drop TRCBLK and TRCBLKEND in favor of system TRCBLK/TRCBLKE.
+*-
+
+*------------------Macro Log/TrcLog----------------------------------*
+
+         MACRO
+&lbl    zVCBTrace
+*VCBTrace
+&lbl     Call  Logger
+         clear VCBAtrrec
+         MEND
+
+         Macro
+&lbl     DoSay &t,&k
+         mvlit logr,&t
+         RxSay logr,l'logr,wrk=wrk256
+         clear logr
+         Mend
+
+*------------------Write trace record--------------------------------*
+
+         Macro
+&ml      TrcLog   &t,&k
+         lclc  &l
+&l       setc  'TL&sysndx'
+         gblc  &trcblka
+         aif   ('&trcblka' ne '').go    already tested
+&ml      cli   trace,c'Y'
+         jne   &l.x
+.go      anop
+         mvlit logr,&t
+         aif   (k'&k eq 0).k0
+         RxSay logr,&k
+         ago   .b
+.k0      RxSay logr
+.b       anop
+         clear logr
+         aif   ('&trcblka' ne '').x     already tested
+&l.x     equ   *
+.x       Mend
+
+*------------------Log REXX data-------------------------------------*
+
+         Macro
+         LogRexxData &t
+         clear logr
+         STRMAKE logr,&t,lenck=Y,                                      c
+               =12,(rnvvarl,4,cvd,4),                                  c
+               ':',(vardatal,4,cvd,4),                                 c
+               +1,(rnvvar,f.rnvvarl,,35),                              c
+               '=',(vardata,f.vardataa,,,45)
+         trclog ,
+         Mend
+
+*------------------Pool access---------------------------------------*
+
+         Macro
+&mlbl    POOL  &what,&name
+&lbl     setc  'Z&sysndx'
+         aif   (k'&name eq 0).namen
+&mlbl    SETREG  r1,&name
+.namen   anop
+         Call  PL&what
+         ltr   r15,r15
+         Mend
+
+*- LogWto
+         Macro
+&lbl     LogWto &t,&l
+&lbl     ds    0h
+         aif   (k'&t eq 0).tl
+         mvlit logr,&t,lr=r1
+         sth   r1,wtopfx
+         ago   .go
+.tl      aif   (k'&l eq 0).go
+         SETREG  r1,&l
+         sth   r1,wtopfx
+.go      lh    r1,wtopfx
+         la    r1,4(,r1)
+         sth   r1,wtopfx
+         la    r1,wtopfx
+         sr    r0,r0
+         svc   35
+         clear logr
+         Mend
+
+*- PGetNext
+         Macro
+&lbl     PGetNext &vcba=,&name=,&namel,&cursor=,&pl=
+         SETREG  r14,&vcba             -> VCB anchor
+         aif   (k'&name ne 0).setnam1
+         sr    r15,r15
+         sr    r0,r0
+         ago   .setnamn
+.setnam1 SETREG  r15,&name(1)
+         SETREG  r0,&name(2)
+.setnamn anop
+         la    r1,&cursor
+         stm   r14,r1,&pl
+         la    r1,&pl
+         call  PGetNext
+         ltr   r15,r15
+         Mend
+
+*- Vputc2d
+         Macro
+         vputc2d &name,&var
+         lclc  &s
+&s       setc  Upper('&name')
+         l     r1,&var
+         $cvd  r1,dw,len=8
+         RxVput name=('REXXGBLV_&s'),data=dw
+         Mend
+
+*- Vputp2d
+         Macro
+         vputp2d &name,&var
+         lclc  &s
+&s       setc  Upper('&name')
+         unpk  dw,&var
+         oi    dw+7,x'f0'
+         RxVput name=('REXXGBLV_&s'),data=(dw,8)
+         Mend
+
+*- RexxPut
+         Macro
+.* syntax NAME=(addr,len),DATA=(addr,len)  *recommended*
+.*     or (nameaddr,namelen),(dataaddr,datalen)
+&lbl     RexxPut &name=,&data=
+         aif   (n'&name gt 0).b
+         SETREG  r14,&syslist(1,1)     -> name
+         SETREG  r15,&syslist(1,2)     name length
+         SETREG  r0,&syslist(2,1)      -> data
+         SETREG  r1,&syslist(2,2)      data length
+         ago   .c
+.b       SETREG  r14,&name(1)          -> name
+         SETREG  r15,&name(2)          name length
+         SETREG  r0,&data(1)           -> data
+         SETREG  r1,&data(2)           data length
+.c       stm   r14,r1,parmlist
+         la    r1,parmlist
+         call  RXVPUT$
+         Mend
+
+*- EMsg
+         Macro
+         EMSG  &rc=,&force=Y
+*Emsg
+         lclc  &l
+&l       setc  'M&sysndx'
+         aif   ('&force' eq 'Y').forcen
+         cli   emsgl+3,0               text already set?
+         jne   &l.x                    then do not override
+.forcen  anop
+         mvlit emsg,&syslist(1),lenreg=r14
+         st    r14,emsgl
+         aif   (k'&rc eq 0).x
+         SETREG  r0,&rc
+         st    r0,rc
+.x       anop
+&l.x     equ   *
+*Emsg end
+         Mend
+
+*- set max rc
+         Macro
+         SetMaxRc &rc
+*SetMaxRc
+         lgfi  r0,&rc
+         c     r0,rc
+         jnh   *+8
+         st    r0,rc
+*SetMaxRc end
+.x       Mend
+
+*- Return from sub, set max rc and/or text
+         Macro
+&lbl     SubEnd &rc=0,&maxrc=,&text=,&ctext=
+         aif   (k'&lbl eq 0).lbln
+&lbl     ds    0h
+.lbln    anop
+         aif   (k'&maxrc eq 0).maxrcn
+         SetMaxRc &maxrc
+.maxrcn  anop
+         aif   (k'&text eq 0).textn
+         Emsg  &text
+.textn   anop
+         aif   (k'&ctext eq 0).ctextn
+         Emsg  &ctext,force=N
+.ctextn  anop
+         #subr end,rc=&rc
+.x       Mend
+
+*- Count
+         Macro
+         Count &q,&v,&reg=r15
+         lclc  &a,&b
+         l     &reg,&v
+&a       setc  Upper('&q')
+         aif   ('&a'(1,1) eq 'U').up
+         aif   ('&a'(1,1) eq 'D').down
+         mnote 8,'**Invalid action'
+         mexit
+.up      la    &reg,1(,&reg)
+         ago   .st
+.down    bctr  &reg,0
+         ago   .st
+.st      st    &reg,&v
+         Mend
+
+*- Required
+
+         Macro
+         Required
+         lcla  &pn,&pc
+         lclc  &name,&cmd,&l
+&l       setc  'rq&sysndx'
+&pn      seta  1
+.a       anop
+&name    setc  '&syslist(&pn)'
+         cli   &name._dl,0
+         jne   &l.x
+&pn      seta  &pn+1
+         aif   (&pn le n'&syslist).a
+         emsg 'required parameter missing'
+         #subr exit,rc=8
+&l.x     ds   0h
+         Mend
+
+*- SayOrList
+
+         Macro
+         SayOrList &a,&l,&counter=stemnum
+         ap    &counter,=p'1'
+         if    (cli,liststem_dl,eq,0)
+           RxSay &a,&l
+         else
+           RxStemPut stema=wrkname,base=(liststem,b.liststem_dl),      c
+               pnum=&counter,data=(&a,&l)
+         endif
+         Mend
+
+*- get new PACB, return address in r1
+         Macro
+&mlbl    PACBnew &name=,&vcbainit=Y
+&mlbl    STORAGE OBTAIN,LENGTH=PACBblkl,SP=131,CALLRKY=YES,LOC=31
+         stm   r14,r3,12(r13)        save
+         aif   ('&vcbainit' eq 'Y').vcbai
+         lr    r14,r1                -> area
+         lgfi  r15,PACBblkl
+         lr    r0,r14
+         sr    r1,r1
+         mvcl  r14,r0                clear
+         ago   .rld
+.vcbai   anop
+         lr    r3,r1
+         xc    PACBnext-PACB(l'PACBnext,r3),PACBnext-PACB(r3)
+         Using VCBanchr,r3
+         VCBAinit ,
+         drop  r3
+.rld     lm    r14,r3,12(r13)        reload
+         SETREG  r15,&name
+         mvc   PACBname-PACB(l'PACBname,r1),0(r15)
+         Mend
+
+*--------------- ilog -------------------
+         Macro
+.*-
+.* Call ilog (make log stem) subroutine
+.*-
+&mlbl    ILOG  &id,&data
+         lclc  &s,&l
+         gblc  &$setreglc
+&s       setc  Upper('&id')
+&l       setc  'ILG&sysndx'
+         cli   lognm_dl,0
+         je    &l.x
+         la    r15,=cl4'&s'            -> id
+         setreg r1,&data(1)
+         setreg r0,&data(2),$setreglc
+         l     r14,=v(ilog)
+         basr  r14,r14
+&l.x     equ   *
+         Mend
+
+*------------ stemzero ------------------
+         Macro
+.*-
+.* Call set stem.0 subroutine
+.*-
+&mlbl    STEM0 &name,&count
+         lclc  &s,&l
+&l       setc  'SS0&sysndx'
+&s       setc  Upper('&name')
+         la    r0,&count               -> count
+         la    r1,&name._dl            -> al1(l'name),name
+         l     r14,=v(setstem0)
+         basr  r14,r14
+         Mend
+
+*------------ PoolPut  ------------------
+         Macro
+.* setup call to VCBPUT subroutine
+&mlbl    POOLPUT &name=,&data=
+         gblc  &$setreglc
+&mlbl    SETREG r14,&name(1)
+         SETREG r15,&name(2),&$setreglc
+         SETREG r0,&data(1)
+         SETREG r1,&data(2),&$setreglc
+         stm   r14,r1,parmlist
+         la    r1,parmlist
+         #subr call,PlPut
+.* ltr 15,15 is done in #subr call
+         Mend
+
+*-  setup and call filter routine
+         Macro
+         Filter &str=,&mask=,&maskn=1,&pl=filterpl
+         gblc  &$setreglc
+         setreg r14,&str(1)
+         setreg r15,&str(2),&$setreglc
+         setreg r0,&mask(1)
+         setreg r1,&mask(2),&$setreglc
+         stm   r14,r1,&pl
+         setreg r14,&maskn
+         st    r14,&pl+16
+         la    r1,&pl
+         #subr call,Filter
+         ltr   r15,r15
+         Mend

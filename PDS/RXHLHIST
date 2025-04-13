@@ -1,0 +1,9 @@
+History
+Versions 1 and 2
+2024-04-24  Fix truncation not recognized for PULL.
+            New commands REPULL and VSTAT.
+2024-04-25  Up-case name for VGET and VPUT.
+            New command NEXTF - filtered NEXT.
+2024-04-26  Global option &NXTF. Fix rc for 'bad command'.
+Version 3
+xxxx-xx-xx  New command CALL - call REXX

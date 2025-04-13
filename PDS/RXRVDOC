@@ -1,0 +1,452 @@
+REXX function - perform various actions for REXX variables
+
+Warnings
+ -  v012 changes the syntax for STEM2TBL and TBL2STEM.
+
+
+General description
+
+ REXXVARS is a general function to perform various actions for REXX
+ variables - browse, copy, drop, edit, index, list, rename, sort and
+ view. Some of those functions can be done using standard REXX
+ features, though with some difficulties, others like the INDEX
+ command and selection by mask cannot.
+ It can sort long variables (gt 32756 bytes), which to the best of my
+ knowledge no other sort can do.
+
+ Multiple variable specifications can be entered as input, each
+ specification can be a descrete name, a mask, a stem or a stem with
+ numeric tail, the latter is called a 'numstem'. See the 'Varlist'
+ description below.
+
+ The list and display actions operates in either of 2 modes:
+ Numstem or standard. Numstem is when just one variable is specified
+ and that variable is a numeric stem in the format stem.# (see
+ 'Varlist' description below). In numstem mode only the variables
+ data is shown, in standard mode both the variables name and contents
+ are shown.
+
+
+Build: 012
+
+ Fixes in this build
+  -  External sort rewritten to allow DFSPARM overrides.
+ Changes in this build
+  -  New syntax for STEM2TBL and TBL2STEM - STEM(n) instead of VAR(n)
+     and STEM(n) without trailing #.
+  -  STEM(stemname.) may now be used instead of VAR(varname.#) in
+     most commands.
+  -  LIST STACK
+  -  SORT can now handle override file DFSPARM.
+  -  SORT can now use a stem for DFSPARM.
+  -  SORT FIELDS(COPY)
+ See the RXRVHIST member for earlier changes.
+
+
+Short syntax, refer to the detailed function descriptions below.
+
+ rc = REXXVARS(command-string)
+  command-string:
+   BROWSE    VAR(varlist) | STACK ÝPANEL(panel)¨ ÝNW(namewidth)¨
+             ÝHDR(hdrtext)¨
+   COPY      VAR(varlist) | STEM(stemname) | STack
+             AS(newnamemask or stemname) | TOSTACK
+             ÝONData(mask)¨
+             ÝCOUNT(countn)¨ ÝLAST(lastn)¨ ÝSKIP(skipn)¨
+   EDIT      VAR(varlist) | STACK ÝPANEL(panel)¨ ÝNW(namewidth)¨
+             ÝHDR(hdrtext)¨
+   DROP      VAR(varlist)
+   INDEX     VAR(varlist) AS(stemname) ÝALL¨
+   LIST      VAR(varlist) | STEM(stemname) ÝONData(mask)¨
+             ÝNW(namewidth)¨ ÝLW(listwidth)¨ ÝHDR(hdrtext)¨
+             ÝSHow(show)¨ ÝCOUNT(countn)¨ ÝLAST(lastn)¨ ÝSKIP(skipn)¨
+   LIST      STACK ÝLW(linewidth)¨ ÝONData(mask)¨
+   RENAME    VAR(varlist) AS(newnamemask)
+   SORT      STEM(stemname) ÝAS(stemname)¨ ÝFIELDS(sort-fields|COPY)¨
+             ÝDFSPARM(dfspstem)¨ ÝONData(mask)¨ ÝNODUP¨ ÝDescending¨
+             ÝMODE(E|I)¨
+   STEM2TBL  STEM(stemname) | STack TABLE(table) TBLVAR(varname)
+   TBL2STEM  TABLE(table) TBLVAR(varname) STEM(stemname) | TOSTACK
+   VERSION
+   VIEW      VAR(varlist) | STACK ÝPANEL(panel)¨ ÝNW(namewidth)¨
+             ÝHDR(hdrtext)¨
+
+  rc    is the response as follows:
+         0   ok
+        >0   not ok, see the REXXVARS_RSN variable for details
+
+Browse
+
+ Browse variables or the stack in an ISPF screen. The record format
+ and length is variable and 32752.
+  You see the variable name followed by an equal sign (=) and the
+ data.
+  You can specify the panel to use.
+
+
+Copy
+
+ Copy variable(s) under control of a mask, see the section 'Mask for
+ altering values' later. In addition to the normal name selection,
+ you can also use the ONDATA parameter to filter on data content, see
+ the section 'Mask for filtering values' later. When varlist is one
+ numstem name and the newname causes the varlist entry to end in a
+ dot, either specifically or by applying it as a mask, then the
+ program will build output stem sequence numbers including stem.0.
+ Likewise when the varlist is one stemname and the newname ends in .#
+ then the program will also build an output stem with sequence
+ numbers and stem.0
+
+ If you are copying to an ISPF table then the table must exist
+ beforehand. The program will do TBADDs, so if the table contains
+ more than one name the other table variables will be set to their
+ default value.
+
+ If you are copying from an ISPF table then only the named variable
+ becomes the stem.
+
+ Samples
+  copy var(wh*) as(+'q.z'*)
+   Variables WHO WHAT and WHERE are copied to Q.ZWHO, Q.ZWHAT and
+   Q.ZWHERE.
+  copy var(text.#) as(+c*) ondata(*Doctor*)
+   Variables TEXT.n are copied to CTEXT.n if they contain 'Doctor'.
+  copy var(text.#) as(newtext.) ondata(*Doctor*)
+   Variables TEXT.n are copied to NEWTEXT.n with properly ascending
+   sequence numbers and NEWTEXT.0 is created.
+  copy var(text.) as(name.#)
+   Stem TEXT.* is copied as numeric stem NAME.n, incl NAME.0.
+  copy stack as(dynpnl.#)
+   The stack is copied as numeric stem DYNPNL.n, incl DYNPNL.0. The
+   stack entries are deleted.
+
+
+Drop
+
+ Drop variable(s) under control of a mask, see the section
+ 'Mask for filtering values' later. The REXX DROP command is
+ normally recommended, but REXXVARS offers wildcarding.
+
+ Samples
+  parse value 'Kilroy was here yesterday' with who what where when
+  drop var(whe*)
+   Will drop WHERE and WHEN.
+
+
+Edit
+
+ Edit variables or the stack in an ISPF screen. For variables it
+ operates in either standard or numstem mode - se below. The record
+ format and length is variable and 32752 respectively.
+
+ You can modify data in both modes.
+
+ Variables in standard mode
+  You see the variable name followed by an equal sign (=) and the
+  data. You can create new variables by overwriting a line or adding a
+  new line. Note that blanks following the equal sign are kept, but
+  trailing blanks are stripped. Blanks between the variable name and
+  the equal sign are ignored. You can delete variables by adding a
+  minus sign (-) in column 1 before the variable name. Deleting a line
+  will just remove it from being edited, the variable itself is not
+  touched.
+
+ Variables in numstem mode
+  Only the data is shown and the line number is the stem sequence
+  number and becomes the stem sequence trail when saved. Variables
+  with a stemnum greater than the last line number are not touched
+  when saving.
+
+ Editing the stack.
+  The result of the edit becomes the new stack, record additions and
+  deletions are honored. You can cancel the edit and retain the stack
+  contents since the last SAVE.
+
+ The NWIDTH parameter is used to make a tabular-like display. Not for
+ numstem mode.
+
+ You can specify the panel to use.
+
+
+Index
+
+ Index creates a numeric stem from a nun-numeric stem. The purpose
+ is to enable access to a non-numeric stem by sequence.
+ The output stem (AS parameter) may be the same as the input stem.
+
+  Sample
+    stem cars.  before INDEX:
+     cars.ford  =  'Old USA car maker'
+     cars.audi  =  'German producer of very nice cars'
+     cars.wv    =  'German car for the common people'
+     cars.mazda =  'We had a couple of those japanese cars'
+    make index
+     cc=RexxVars('Index var(cars.) as(cars.)')
+    stem cars. after INDEX:
+     CARS.AUDI  =  'German producer of very nice cars'
+     CARS.FORD  =  'Old USA car maker'
+     CARS.MAZDA =  'We had a couple of those japanese cars'
+     CARS.WV    =  'German car for the common people'
+     CARS.0     =  00000004
+     CARS.1     =  'CARS.AUDI'
+     CARS.2     =  'CARS.FORD'
+     CARS.3     =  'CARS.MAZDA'
+     CARS.4     =  'CARS.WV'
+    Listing by sequence
+     do n=1 to cars.0
+       say n'='cars.n'->'value(cars.n)
+     end
+   Make index of normal ordered stem:
+     cc=RexxVars('index var(list.#) as($list.) all')
+    this will make $list.0 = 'list.0', $list.1 = 'list.1' etc.
+
+
+List
+
+ List variables in either normal or numstem mode. In numstem mode
+ the variables are ordered by the stem tail, in normal mode they
+ are listed in alphabetical order, meaning that TEXT.12 comes before
+ TEXT.2.
+
+ Default is to list variable name and data in colums. The name
+ column default width is 30, the data column default width is 48. The
+ name column width can be set by the NW parameter, the total line
+ width can be set by the LW parameter. You can use '*' as name column
+ width to use the width of the longest name selected.
+
+ HDR(NO) suppresses the header.
+
+ Samples
+  list var(text*) hdr(testhdr)
+   Lists all variables TEXT*.
+  list var(text.) nw(*)
+   Lists the TEXT. stem using the longest name as name column width.
+  list var(text.) show(len) lw(130)
+   Lists the TEXT. stem showing length for both name and data, and
+   using 130 as total list width.
+  list var(text.*c*) hdr(no)'
+   Lists all variables TEXT*.C* with no header.
+
+Rename
+
+ Rename variables. The parameters are the same as COPY, as RENAME
+ is really a combination of COPY and DROP.
+
+
+Sort
+
+ Sort a stem to itself or to a new stem.
+   -  The variables are internally converted to variable length
+      records, position values in the FIELDS parameter are adjusted
+      automatically. But if you do overrides i.e. through the
+      DSFPARMS libref, you must remember to add 4 to the position
+      values.
+   -  You can use the DFSPARMS(stemname) parameter to define
+      overrides directly in you REXX, without having to allocate a
+      dataset. The contents of the stem elements must adhere to the
+      rules set out for the DFSPARM dataset. Stem.0 must be set to the
+      number of stem variables.
+   -  Large variables are supported, but you can only sort within
+      positions 1-32740, this is a DFSORT limitation. If you do sort
+      large variables, then do not use DFSPARM to restructure the
+      data. Large records are split before SORT is invoked and the
+      back-end is re-attached after sort. And REXXVARS have no idea of
+      what you might have done in DFSPARMS...
+   -  Fields defaults to sorting the entire variable ascending.
+   -  The Descending parameter will sort descending.
+   -  The NODUP parameter will drop duplicate records.
+   -  Using FIELDS(COPY) together with the DFSPARM feature allows you
+      to rearrange records in a large stem without altering the
+      sequence.
+   -  REXXVARS sort will create and drop variables REXXVAR$
+      internally. If external sort is selected then the FIELDS
+      parameter defaults to (5,4088,CH,A).
+
+ Samples
+  sort var(text.#) fields(1,8,ch,a,10,2,ch,a)
+   Sort numeric stem TEXT by fields. The fist value of each quadlet
+   (the position) will be adjusted internally to match.
+  sort var(text.) fields(1,8,ch,a) ondata(*Doctor*)
+   Filtered sort.
+  sort var(text.) fields(1,8,ch,a) as(data.)
+   Sort stem TEXT. creating new stem DATA.
+
+
+STEM2TBL
+
+ Copy a stem to an ISPF table. The table must exist. Table rows are
+ added. The table may consist of multiple variables, but only one is
+ set by this command using the VAR parameter.
+
+
+TBL2STEM
+
+ Copy an ISPF table to a stem. The table may contain multiple
+ variables, but only one is used by this command.
+
+
+Version
+
+ Return REXXVARS version and assembly date-time.
+
+
+View
+
+ Works by default the same as EDIT, though without the SAVE. When the
+ NWIDTH parameter is used then a couple of white spaces are inserted.
+
+
+Parameter descriptions
+
+ all          Index, process stem records with numeric suffix.
+
+ append       Sort, append to AS(stem) rather than replace.
+
+ countn       Number of records, variables or stack, to process after
+              skipping skipn records. Only for numeric stems, i.e.
+              'list var(rslt.#) count(100)'.
+
+ descending   Sort descending.
+
+ dfspstem     Name of stem containing DFSPARM input. The contents
+              must adhere to the restrictions for the DFSPARM dataset.
+              See the SORT command above for details.
+
+ hdr          Text to as header in list. The default is 'Listing
+              varlist'. Max length is 54, blanks are translated to
+              underscores.
+ lastn        Process only the lastn number of variables.
+
+ listwidth    Total width of list.
+
+ mode         Force sort mode External or Internal. External mode is
+              implicit if you use the FIELDS parameter.
+
+ namewidth    Width of name column in list. Can be a specific value or
+              '*' for using the widest name selected.
+
+ newnamemask  Mask for renaming variable(s), see Newnamemask below for
+              details. Max length is 160.
+
+ NODUP        SORT drop duplicate records.
+
+ ondata       Mask for filtering variables by their contents.
+
+ panel        ISPF panel name.
+               Default for browse is ISPBROBA.
+                 -      -  edit is standard edit panel.
+                 -      -  view is standard view panel.
+
+ SHOW         Change how list is displayed.
+  ALL          include stem records with numeric suffix.
+  LEN          show lengths of name and data in the list. The 4-byte
+               name length field is taken from the name width value.
+  S0           show stem.0 when listing numeric stem.
+
+ skipn        Number of records, variables or stack, to skip before
+              processing.
+
+ sort-fields  One or more quadlets, specified as with normal DFSORT:
+              pos,length,type,direction i.e. 2,20,CH,A. Even though
+              the sort is done as a variable-length sort, the 'pos'
+              field is internally adjusted so that you dont have to.
+              But if you use a DFSPARM file then you must add 8 to all
+              'pos' fields to allow for a pseudo RDW and internal
+              control area. If you don't then you will face a S0C4
+              abend.
+
+ STACK        read from the stack.
+
+ stemname     stemname including trailing dot. Max length is 160.
+
+ tblname      ISPF table written to / read from.
+
+ tblvar       ISPF table variable name updated / read.
+
+ TOSTACK      write to the stack instead of a stem.
+
+ VAR(name)    ISPF table variable for the STEM2TBL and TBL2STEM
+              commands.
+
+ varlist      one or more variable names or masks as follows, max
+              length is 160.
+  descrete      Name without any generic chars, i.e. DATE.
+  mask          Name is a mask, see the Mask below for details.
+  numstem       Stemname ending with .#, i.e. TEXT.# - stem.0 must
+                contain the number of stem variables.
+  genstem       Stemname including trailing dot, functionally
+                equivalent to the mask stem.*
+
+ varname        descrete variable name, max length is 160.
+
+
+Mask for filtering values
+
+ Mask characters operation
+  %        Matches any one character.
+  *        Matches zero or more characters.
+
+
+Mask for altering values
+
+ Mask characters operation
+  %        String character is copied to the output.
+  'text'   Insert text. Maximum text length is 254.
+  >        Advance cursor (=drop character).
+  >'text'  Advance cursor to start of text in remainder of string.
+           Maximum text length is 254.
+  *        Copy remainder to output (position cursor).
+  *'text'  Copy string characters from the current position to text,
+           'text' itself is not copied. Maximum text length is 254.
+  ?>text?if-found?not-found?
+           If text matches string anywhere at or after cursor then
+           use if-found mask, else use not-found mask. Either mask
+           may be null. Maximum text length is 254.
+  \        The char following in the mask is copied to output, this
+           allows you to copy a mask character - i.e. \%
+  other    Mask character is copied.
+
+
+ Return codes
+
+  0        All ok
+  4        Warning, like empty input. See the REXXVARS_RSN variable
+           for details.
+  >4       Bad. See the REXXVARS_RSN variable for details.
+
+ Special variables created
+
+  REXXVARS_GETN    number of variables read.
+  REXXVARS_OUTN    number of variables written.
+  REXXVARS_RSN     reason if rc gt 0
+  REXXVARS_STAT    various statistics, currently in the format:
+                    NMAXL(nmaxl) DMAXL(dmaxl) NAMEN(namen) GETN(getn)
+                    OUTN(outn) SORT(sortmode)
+                    CMN(cmn)
+                    where
+                     cmn       for internal sort, the number of compares
+                               done.
+                     dmaxl     maximum data length
+                     getn      numer of variables read passing data-
+                               and other filters.
+                     namen     number of names selected
+                     nmaxl     maximum name length
+                     outn      number of variables written, including
+                               dynamically created stem.0 for index.
+                     sortmode  Sort mode selected, E = external or
+                               I = internal
+
+
+Installation notes
+
+ The program will by default reload itself thus retaining the module
+ in the JPAQ. This improves performance for multiple calls
+ significantly. This load will not be done if the program is added to
+ the LPA, which is the recommended placement.
+ You can disable the self-load option by removing the 'CDEUCTZ2'
+ statement.
+
+
+Contact info
+ email   willy@harders-jensen.com
+ web     https://harders-jensen.com  (newest version here)

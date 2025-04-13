@@ -1,0 +1,167 @@
+//RXHL$CPL JOB (1),'DVL-RXHL-C-DEMO',
+//  CLASS=A,COND=(0,LT),REGION=0M
+//*
+//* Test hl-interface module to acces REXX vars and stack
+//* This test is for C
+//*
+//  SET DP=WJENSEN,JL=CBC.SCCNPRC           CBT
+//  SET DP=Z,JL=CBC.SCCNPRC                 Package
+//  SET DP=DVL,JL=CBC.SCCNPRC               Development
+//*
+//  SET PPLIB=&DP..PP.RXHLLK.LIB
+//  SET PPMOD=&DP..PP.RXHLLK.MOD
+//  JCLLIB ORDER=&JL
+//*
+//C1    EXEC EDCCB,
+// PARM.COMPILE='SOURCE',
+// PARM.BIND='AMODE=31,MAP,DYNAM=DLL,CASE=MIXED,'
+//COMPILE.SYSIN DD *
+#include <stdio.h>
+#include <string.h>
+#pragma linkage (rxhllkc, OS)
+main () {
+ extern int rxhllkc();
+ int retcode;
+ char hlicmdÝ10¨;     /* command     */
+ char nameÝ61¨;       /* varname     */
+ int  namelen;
+ char parmÝ101¨;
+ int  parmlen;
+ char maskÝ61¨;
+ int  masklen;
+ char textÝ121¨;      /* text        */
+ int  textlen;
+ int  retval, count,namemaxw, datamaxw;
+
+ printf("Run RXHLLKC C demo\n");
+
+ printf(" \nTest MSG \n");
+ retcode = 0;
+ strcpy (hlicmd, "?MSG   ");
+ strcpy (text, "Test text message");
+ textlen = strlen(text);
+ retcode = rxhllkc (hlicmd, text, &textlen);
+ printf("rc is %d \n", retcode);
+
+ printf(" \nTest VGET\n");
+ retcode = 0;
+ strcpy (hlicmd, "VGET   ");
+ strcpy (name, "TESTVAR");
+ namelen = strlen(name) ;
+ textlen = 120;
+ retcode = rxhllkc (hlicmd, name, &namelen, text, &textlen);
+ printf("rc is %d, text is %d '%s' \n", retcode, textlen, text);
+
+ printf(" \nTest VPUT\n");
+ retcode = 0;
+ strcpy (hlicmd, "VPUT    ");
+ strcpy (name, "CVAR0001");
+ namelen = strlen(name) ;
+ strcpy (text, "Just testing vput-ing data from a C program");
+ textlen = strlen(text);
+ printf("text is %d '%s' \n", textlen, text);
+ retcode = rxhllkc (hlicmd, name, &namelen, text, &textlen);
+ printf("rc is %d \n", retcode);
+
+ /* NEXT */
+ printf(" \nTest NEXT\n");
+ retcode = 0;
+ while (retcode < 2) {
+   strcpy (hlicmd, "NEXT   ");
+   namelen = 60;
+   textlen = 120;
+   retcode = rxhllkc (hlicmd, name, &namelen, text, &textlen);
+   printf("rc is %d ", retcode);
+   if (retcode < 2)
+     printf("var %d %s = %d '%s' \n", namelen, name, textlen, text);
+ }
+ printf(" \n");
+
+ printf(" \nTest QUEUED\n");
+ retcode = 0;
+ strcpy (hlicmd, "QUEUED  ");
+ retval  = 0;
+ retcode = rxhllkc (hlicmd, &retval);
+ printf("rc is %d retval/count is %d \n", retcode, retval);
+
+ /* PULL entrire stack */
+ printf(" \nTest PULL entire stack\n");
+ retcode = 0;
+ while (retcode < 2) {
+   strcpy (hlicmd, "PULL    ");
+   textlen = 120;
+   retcode = rxhllkc (hlicmd, text, &textlen);
+   if (retcode < 2)
+     printf("rc %d len %d data '%s' \n", retcode, textlen, text);
+   else printf("rc %d ", retcode);
+ }
+ printf(" \n");
+
+ /* RE-PULL latest stack */
+ printf(" \nTest RE-PULL\n");
+ retcode = 0;
+ strcpy (hlicmd, "REPULL  ");
+ textlen = 120;
+ retcode = rxhllkc (hlicmd, text, &textlen);
+ printf("rc %d len %d data '%s' \n", retcode, textlen, text);
+ printf(" \n");
+
+ printf(" \nTest PUSH\n");
+ retcode = 0;
+ strcpy (hlicmd, "PUSH    ");
+ strcpy (text, "A record pushed to the top");
+ textlen = strlen(text);
+ retcode = rxhllkc (hlicmd, text, &textlen);
+ printf("rc is %d \n", retcode);
+
+ printf(" \nTest QUEUE\n");
+ retcode = 0;
+ strcpy (hlicmd, "QUEUE   ");
+ strcpy (text, "A record pushed to the bottom");
+ textlen = strlen(text);
+ retcode = rxhllkc (hlicmd, text, &textlen);
+ printf("rc is %d \n", retcode);
+
+ printf(" \nTest PULL \n");
+ retcode = 0;
+ strcpy (hlicmd, "PULL    ");
+ textlen = 120;
+ retcode = rxhllkc (hlicmd, text, &textlen);
+ printf("rc is %d, text is '%s'\n", retcode, text);
+
+ printf(" \nTest VSTAT \n");
+ retcode = 0;
+ count   = 0;
+ namemaxw= 0;
+ datamaxw= 0;
+ strcpy (hlicmd, "VSTAT   ");
+ retcode = rxhllkc (hlicmd, &count, &namemaxw, &datamaxw);
+ printf("rc is %d, count %d, namemaxw %d, datamaxw %d \n",
+          retcode, count,    namemaxw,    datamaxw );
+
+ printf(" \nTest run REXX  \n");
+ retcode = 0;
+ strcpy (hlicmd, "?CALL   ");
+ strcpy (name, "RXHLRXP2");
+ strcpy (parm, "This is the first and only parm");
+ textlen=120;
+ parmlen = strlen(parm);
+ retcode = rxhllkc (hlicmd, name, parm, &parmlen, text, &textlen);
+ printf("rc is %d retval='%s' \n", retcode, text);
+
+}
+//BIND.SYSLMOD DD DISP=(,PASS),DSN=&&PGMLIB(RXHLDCPL)
+//BIND.SYSLIB  DD
+//             DD
+//             DD DISP=SHR,DSN=&PPMOD
+//*
+//* Run from a REXX pgm
+//*
+//RXEX     EXEC PGM=IKJEFT1B,PARM='RXHLRXT CPL'
+//SYSEXEC  DD DISP=SHR,DSN=&PPLIB
+//STEPLIB  DD DISP=OLD,DSN=&&PGMLIB
+//SYSTSPRT DD SYSOUT=*,OUTLIM=1000           TSO messages
+//SYSTSIN  DD DUMMY
+//SYSOUT   DD SYSOUT=*,OUTLIM=1000           Cobol display
+//SYSPRINT DD SYSOUT=*,OUTLIM=1000           ASM prt
+//SYSUDUMP DD DUMMY

@@ -1,0 +1,99 @@
+ISPF exit 1 - make dynamic panels from REXX stem(s)
+
+Current build: 006  2022-09-17
+
+Description
+
+ This ISPF panel exit is used to insert records into an ISPF panel.
+ It can replace the entire panel, or one or more sections
+ with data in REXX stem variable(s).
+ Note that the )END statement must still be present in the panel.
+
+ The exit looks for a line starting with '*ISPDPX01 vname' in the
+ panel, then inserts the entire stem vname there.
+
+ When using specific stemname
+  The vname must include the trailing dot, max width incl the dot
+  is 115 characters.
+
+ When using indirect stemname
+  The vname must be inclosed in paranthesis, or start with an
+  ampersand, and must be a variable name of 1-115 characters.
+  The stemname  must include the trailing dot, max width incl the
+  dot is 115 characters.
+
+ Multiple occurences of '*ISPDPX01 vname' is allowed, see member
+ ISX1PNL2 for a sample.
+
+ Sample panel using specific stemname, named TESTX001:
+
+  )INEXIT LOAD,ISPDPX01
+  *ISPDPX01 pl.
+  )END
+
+  Sample REXX code for panel:
+
+  pl.1 = ')ATTR'
+  pl.2 = ')BODY expand(\\)'
+  pl.3 = '%Test panel exit 1'
+  pl.4 = '%Cmd =>_zcmd  \ \ +'
+  pl.5 = '+'
+  pl.6 = 'Just some text'
+  pl.7 = '+'
+  pl.8 = ')INIT'
+  pl.9 = ')PROC'
+  pl.0 = 9
+  address ispexec "display panel(TESTX001)"
+
+ Sample panel using indirect stemname, named TESTX002:
+
+  )INEXIT LOAD,ISPDPX01
+  *ISPDPX01 &pnlstem
+  )END
+
+  Sample REXX code for panel:
+
+  Populate stem pl. as above....
+  pnlstem='pl.'
+  address ispexec "display panel(TESTX002)"
+
+ ISPDPX01 can be run as REXX function to return version or to copy the
+ stack to a stem.
+ Syntax:
+  ver=ISPDPX01('version')
+  rc =ISPDPX01('Q2S stemname.')
+   Parameter Q2S is case insensitive.
+   stemname must end with a dot (.)
+   rc = 0   Ok
+   rc = 4   Empty stack
+   rc = 8   Parameter error, i.e. missing stemname.
+   rc = 12  Parameter error bad command.
+
+ Sample stack-to-stem
+  queue  ')ATTR'
+  queue  ')BODY expand(\\)'
+  queue  '%Test panel exit 1'
+    . . .
+  cc =ISPDPX01('Q2S pl.')
+
+ The program is written using my structured assembly macro set WSAM.
+ These macros are similar but not identical to IBM's structured
+ assembly macros.
+
+Members in the dataset:
+
+ ISPDPX01  Source - assemble and link.
+ ISX1DOC   Documentation (you are reading it now).
+ ISX1MACS  Macro copy book.
+ ISX1IVP1  Verification pgm.
+ ISX1PNL*  Sample panels etc.
+
+Installation notes:
+
+ If the assembly fails for enhanced immediate instruction, i.e. LGFI,
+ then remove the asterix in front of 'COPY  Z10MACS' and reassemble.
+
+Contact info
+
+ email   willy@harders-jensen.com
+ web     https://harders-jensen.com

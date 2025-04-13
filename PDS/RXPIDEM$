@@ -1,0 +1,34 @@
+//WJRXPIDE JOB (1),'WJENSEN-RXPIDEM$',CLASS=A,MSGLEVEL=(1,1),
+//       MSGCLASS=X,TIME=NOLIMIT,REGION=64M,COND=(0,LT)
+//*
+//* You must verify / change the datasetnames, both the RXPIPE lib
+//* and the ISPF datasets, before running the job. The ISPMLIB is
+//* where message members ISPZ00 and ISRZ00 are found, and the
+//* ISPTLIB is where table member ISPSPROF is found.
+//*
+//         SET PIPELIB=CBT669.PP.RXPIPE.V008.LIB           <<-- change
+//*
+//* Run demo
+//*
+//RXPIIVP  EXEC PGM=IKJEFT1B
+//RXPILIB  DD DISP=SHR,DSN=&PIPELIB
+//SYSEXEC  DD DISP=SHR,DSN=&PIPELIB
+//SYSTSPRT DD SYSOUT=*
+//ISPMLIB  DD DISP=SHR,DSN=ISP.SISPMENU             <<-- VERIFY/CHANGE
+//ISPTLIB  DD DISP=SHR,DSN=ISP.SISPTENU             <<-- verify/change
+//ISPPLIB  DD UNIT=SYSDA,SPACE=(TRK,(1,1,1)),
+//            RECFM=FB,LRECL=80,BLKSIZE=0,VOL=REF=*.RXPILIB
+//ISPSLIB  DD DISP=SHR,DSN=&PIPELIB
+//ISPPROF  DD UNIT=SYSDA,SPACE=(TRK,(1,1,1)),
+//            RECFM=FB,LRECL=80,BLKSIZE=0
+//ISPLOG   DD SYSOUT=*,RECFM=VA,LRECL=125,BLKSIZE=129
+//ISPLST1  DD SYSOUT=*
+//ISPFILE  DD SYSOUT=*,RECFM=FB,LRECL=80,BLKSIZE=6240
+//SYSTSIN  DD *
+ ISPSTART CMD(RXPIDEMO)
+
+ /* test in 'open' TSO */
+ rxpipe tso lista | filter mask *&user..*
+
+ /* verify that prefix has been restored */
+ PROFILE

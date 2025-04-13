@@ -1,0 +1,44 @@
+Vers  Desc
+001   Initial
+002   new - copy stem to ISPF table and copy ISPF table to stem.
+          - Sort default. Sort default descending.
+003   fix - Abend S0C4 when duplicate varname
+      new - Internal sort if simple sort and total data sz lt 1/2GB
+          - APpend parm for append to numeric stem.
+004   new - Use the stack for input or output for COPY, SORT,
+            STEM2TBL and TBL2STEM.
+          - COUNT, LAST and SKIP options for LIST and COPY.
+      chg - Edit will now honor deleted records directly, so the old
+            feature with a minus sign in front of the name is dropped.
+005   fix - abend S0C7 when stem.0 does not contain a number.
+      chg - better explanation for parameter error.
+006   chg - suppress display of own variables, unless forced by the
+            SHow(SELF) option.
+007   fix - mask problem with 1 char after last asterix i.a. ABC*F
+008   chg - SHOW(SELF) is now forced for 'list' and 'index' commands.
+
+009   Fix S0C1 when not called from a REXX, will end rc=24.
+      Rearrrange some dynamic areas to leave rest within 4k.
+      Fix re-allocate issue in RXGETX subroutine, perhaps
+      related to new REXXMACS macro.
+010   Fix browse line number when doing down max.
+      Fix storage overlay for MVC in EDIF routine.
+      Honor the HDR parm for bwowse, edit and view.
+      Fix NWidth parameter for list.
+      Fix stem.0 is shown even when stem.# is requested.
+      Honor the NWIDTH parm for edit.
+      Browse, edit and view the stack.
+011
+ -  BROWSE, EDIT and VIEW internals have been heavily modified.
+ -  The NWidth parameter is now honored for BROWSE, EDIT and VIEW.
+ -  The HDR parameter is now honored for BROWSE, EDIT and VIEW.
+012
+ 2024-11-30  External sort rewritten to allow DFSPARM overrides.
+ 2024-12-03  New syntax for STEM2TBL and TBL2STEM - STEM(n) instead
+             of VAR(n) and STEM(n) without trailing #.
+ 2024-12-03  New LIST operand STACK.
+ 2024-12-03  STEM(stemname.) may now be used instead of
+             VAR(varname.#) in most commands.
+ 2024-12-05  SORT can now handle override file DFSPARM.
+ 2024-12-06  SORT can now use a stem for DFSPARM.
+ 2024-12-06  SORT FIELDS(COPY)

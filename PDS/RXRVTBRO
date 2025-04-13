@@ -1,0 +1,89 @@
+/* rexx */
+ "STEPLIB ALLOCATE DATASETS('CBT669.LINKLIB') SHR REUSE NOMSGS"
+
+ say 'Browse numstem'
+ Call MkData1
+ cc=RexxVars('browse var(TEXT.#)      ')
+ trace off
+ say 'rc='cc 'rsn='rexxvars_rsn 'stat='rexxvars_stat
+ say zerrlm
+ drop TEXT.
+ say ''
+
+ say 'Browse descrete vars'
+ Call MkData2
+ trace off
+ cc=RexxVars('browse var(TEXT. name wh*)')
+ trace off
+ say 'rc='cc 'rsn='rexxvars_rsn 'stat='rexxvars_stat
+ say zerrlm
+ drop TEXT.
+ say ''
+
+ say 'Browse stack'
+ Call MkDataList
+ trace off
+ cc=RexxVars('browse stack')
+ trace off
+ say 'rc='cc 'rsn='rexxvars_rsn 'stat='rexxvars_stat
+ "delstack"
+
+ exit
+
+MkData1:
+ Call MkDataList
+ qn= queued()
+ TEXT.0=qn
+ do n=1 to qn
+   parse pull t
+   TEXT.n=strip(t,'t')
+ end
+ return 0
+
+MkData2:
+ Call MkDataList
+ trace off
+ qn=queued()
+ trace off
+ qn=queued()
+ do i=1 to qn
+   parse pull n t
+   n=translate(n)''i
+   zz=Value('TEXT.'n,strip(subword(t,2),'t'))
+ end
+ drop i n t
+ parse value 'Kilroy was here' with who when where
+ name='Me Myself I'
+ return 0
+
+MkDataList:
+ "delstack"
+ do 4
+   queue 'Alpha    Doctor Who is a British science-fiction           '
+   queue 'Bravo    television programme produced by the BBC from 1963'
+   queue 'Charlie  to the present day. The programme depicts the     '
+   queue 'Delta    adventures of the Doctor, a Time Lord a           '
+   queue 'Echo     time-travelling humanoid alien. He explores the   '
+   queue 'Foxtrot  universe in his TARDIS, a sentient time-travelling'
+   queue 'Golf     space ship. Its exterior appears as a blue British'
+   queue 'Hotel    police box, which was a common sight in Britain in'
+   queue 'India    1963 when the series first aired. Along with a    '
+   queue 'Juliet   succession of companions, the Doctor combats a    '
+   queue 'Kilo     variety of foes while working to save             '
+   queue 'Lima     civilisations and help people in need. The show is'
+   queue 'Mike     a significant part of British popular culture,and '
+   queue 'November elsewhere it has become a cult television         '
+   queue 'Oscar    favourite.                                        '
+   queue 'Papa      The show has influenced generations of British   '
+   queue 'Quebec   television professionals, many of whom grew up    '
+   queue 'Romeo    watching the series. The programme originally ran '
+   queue 'Sierra   from 1963 to 1989. After an unsuccessful attempt  '
+   queue 'Tango    to revive regular production in 1996 with a       '
+   queue 'Uniform  backdoor pilot in the form of a television film,  '
+   queue 'Victor   the programme was relaunched in 2005 by Russell T '
+   queue 'Whisky   Davies who was showrunner and head writer for the '
+   queue 'Xray     first five years of its revival, produced in-house'
+   queue 'Yankee   by BBC Wales in Cardiff. The first series of the  '
+   queue 'Zulu     21st century, featuring Christopher Eccleston ....'
+ end
+ return 0

@@ -1,0 +1,293 @@
+ /*                                                      REXX
+  RXPIPE ISPF sub-commands
+
+  Subcommands:
+
+  CMD       Just issue the command and return the rc
+  DSNLIST   Build datasetlist
+  EDIT      Edit specified dataset. Parameter, any valid EDIT parm.
+  MAKETBL   Create table using first verb as name, rest of parm 1 as
+            varnames.
+             Sample:  MAKETBL TBL1 NAME ADDR PHONE
+  MBRLIST   Build member list by dataset or DD=dname. A member name or
+            mask may be added in paranthesis i.e. dd=ispprof(isr*).
+  SETMSTAT  Set/update ISPF statistics for a member
+  SKEL      Run file tailoring services using the parameter as a skel
+            name list. The resulting records are written back to the
+            stack. Note that the initial stack is copied to ISPF
+            table RXPIPE with varname TEXT, as the stack is not
+            available to the skeleton.
+             Sample:  SKEL  JOBSKEL1
+ */
+
+ /* Run as implicit EDIT macro ? */
+ Address Isredit "MACRO PROCESS (PRM)"
+ if rc=0 then return IspfEditMac()
+
+ /* regular call */
+ Signal on syntax  name 0PgmSyntax
+ Signal on novalue name 0PgmNoVal
+
+ parse arg $what $prm 1 . $p1 $p2
+ $prm=strip($prm)
+ $p2 =strip($p2 )
+ upper $what
+ rc=0
+ cc=0
+ zerrlm=''
+ Address Ispexec
+ "Control errors return"
+
+ if $what='CMD'  then return 0ISPF($prm)
+ if $what='EDIT' then return Edit()
+ if $what='SKEL' then return Skel($prm)
+ if $what='MAKETBL'  then return MakeTbl($prm)
+ if $what='SETMSTAT' then return SetmStats()
+ if $what='DSNLIST'  then return DsnList()
+ if $what='MBRLIST'  then return MbrList()
+ return xmsg('*Bad ISPF subcommand' $what)+8
+
+0PgmSyntax:
+ trace off
+ say '*Syntax error in line' sigl':' Errortext(rc)
+ say strip(sourceline(sigl),'t')
+ Exit 12
+0PgmNoVal:
+ trace off
+ say '*Novalue raised for line' sigl '-'
+ say strip(sourceline(sigl),'t')
+ Exit 12
+
+/* ISPF commnand driver */
+0ISPF:
+ zerrlm=''
+ Address IspExec arg(1)
+zz= zerrlm
+ if arg(2)<>'' then if rc>arg(2)='' then say arg(1) 'rc' rc zerrlm
+ return rc
+
+/* Edit dataset                   */
+Edit:
+ "edit dataset("$p1")" $p2
+ if rc>4 then return xmsg('Edit' $p1 'rc' rc zerrlm)+8
+Return rc
+
+/* run the file tailoring service, will move the stack to a table */
+Skel:
+ "Ftclose"    /* just in case previous error */
+ if MakeTbl('RXPIPE TEXT')<>0 then return 8
+ cc=BPXWDYN('Alloc dd(ispfile) reuse lrecl(200) recfm(v,b)',
+            'new delete tracks space(5,5) unit(sysda) blksize(0)')
+ if cc<>0 then return xmsg('Alloc ispfile rc' cc)+8
+ parse arg $sl '(' skelparm
+ upper $sl       /* not really neccessary */
+ "Ftopen"
+ cc=rc
+ if cc<>0 then say 'FtOpen rc' cc zerrlm
+ else do
+   do $n=1 to words($sl)
+     zerrlm=''
+     $s=word($sl,$n)
+     "Ftincl" $s
+     cc=rc
+     if cc<>0 then do
+       say 'FtIncl' $s 'rc' cc zerrlm
+       leave
+     end
+   end
+   "Ftclose"
+ end
+ "TBend RXPIPE"
+ if cc=0 then do
+   Address TSO "Execio * diskr ispfile (finis)"
+   cc=rc
+   if cc<>0 then say 'Read generated skel rc' cc
+ end
+ zz=BPXWDYN('free dd(ispfile)')
+ Return max(cc,rc)
+
+/* Create table */
+MakeTbl:
+ arg $mtp1 $mtp2
+ text=''
+ "tbend" $mtp1
+ if 0ISPF("tbcreate" $mtp1 "names("$mtp2") share nowrite replace",0)>0,
+   then return 20
+ mtcmd= 'do' queued()';parse pull' $mtp2';"tbadd" '''$mtp1''';trace off;end'
+ Interpret mtcmd
+ "tbtop" $mtp1
+ return 0
+
+/* Set ISPF stats for member */
+SetmStats:    /* parm: dsn(mbr) | dsn mbr */
+ parse value translate($prm,'  ','()') with dsn mbr mdid .
+ if datatype(mbr)<>'CHAR' then,
+   return xmsg(mbr 'is not a valid member name')+1
+ if 0ISPF("lminit dataid(mdid) dataset('"dsn"') enq(shr)",0)=0,
+   then $z=0ISPF("lmmstats dataid("mdid") member("mbr")",0)
+ $lm=zerrlm
+ $cc=rc
+ $z=0ISPF("lmfree dataid("mdid")")
+ return $cc
+
+DsnList: /* DSNLIST  Get dataset list, optionally with some info       */
+ parse value '' with $p $fields $vol lid1
+ Interpret 0KParse('_DSL' $prm,'_dsl fields vol','$')
+ if $fields='' then $fields='DSNAME zdlvol' /* ZDLDSORG ZDLRECFM ZDLLRECL'*/
+ Address ispexec
+ zerrlm=''
+ if $vol<>'' then $vol='volume('$vol')'
+ "lmdinit listid(lid1) level("$_dsl")" $vol
+ if rc<>0 then return xmsg('*Dsnlist lmdinit cd' rc zerrlm)+8
+ p=''
+ ?dso=(translate($fields)='DSNAME')
+ if \?dso then p='STATS(YES)'
+ ?recfm=wordpos('ZDLRECFM',$fields)>0
+ seldsn=''
+  /* zdlrecfm may start with x'FF' for some info (GDG and VSAM) */
+ do until rc>0
+   zerrlm=''
+   "lmdlist listid("lid1") option(list) dataset(seldsn)" p
+   dsname=left(seldsn,44)
+   if rc >8 then return xmsg('*Dsnlist lmdlist cd' rc zerrlm)+8
+   if rc =0 then Interpret "queue translate("$fields",'?','ff'x)"
+ end
+ "lmdlist listid("lid1") option(free)"
+ "lmdfree listid("lid1")"
+ return 0
+
+MbrList:  /* Make member list */
+ trace off
+ parse value '' with $_dsn $ddn $vol $fields $where $member mbrname
+ upper $prm
+ Interpret 0KParse('_dsn' $prm,'_dsn fields where','$')
+ $_dsn=Unquote($_dsn) /* unquoted */
+ parse var $_dsn $_dsn'('$member')' .
+ parse value ($fields<>'') ($where<>'') ($member<>''),
+  with ?fields ?where ?member .
+ if $vol<>'' then $vol='volume('$vol')'
+ if \?fields then $fields='MBRNAME'
+ upper $_dsn $fields $vol
+ Address Ispexec
+ if left($_dsn,3)='DD=' then,
+      "lminit dataid($mldid) ddname("substr($_dsn,4)")" $vol "enq(shr)"
+ else "lminit dataid($mldid) dataset('"$_dsn"')" $vol "enq(shr)"
+ if rc<>0 then return xmsg('*lminit' $_dsn 'failed rc' rc zerrlm)+8
+ "lmopen dataid("$mldid")"
+ if rc<>0 then return xmsg('*lmopen' $_dsn 'failed rc' rc zerrlm)+8
+ ?stats=($fields<>'MBRNAME')
+ do forever
+   "lmmlist dataid("$mldid") member(mbrname)"
+   if rc<>0 then leave
+   if ?stats then "lmmfind dataid("$mldid") member("mbrname") stats(yes)"
+   if rc =0 then do
+     ?ok=1
+     if ?member then ?ok=Mask($member,mbrname)
+     if ?where then if ?ok then Interpret "?ok=("$where")"
+     if ?ok then Interpret "queue" $fields
+   end
+ end
+trace off
+ "lmmlist dataid("$mldid") option(free)"
+ "lmclose dataid("$mldid")"
+ "lmfree dataid("$mldid")"
+ return 0
+
+XMsg: say arg(1);return 0;
+Requote: if arg(1)='' then return '';else return "'"Unquote(arg(1))"'"
+UnQuote: trace off; return, /* drop outer quotes, preserve inner blanks */
+ translate(strip(strip(translate(arg(1),'04'x,' '),"b","'"),'b'),' ','04'x)
+
+/* keyword parser - see RXPIPE for details */
+0KParse: Procedure
+ parse arg rec,kwl,pfx,dflt
+ if rec='' then return ''
+ parse value '020406'x with eor +1 bc +1 qc +1 rtn
+ rec=rec eor                                /* add eor marker */
+ kwl=translate(kwl) eor                     /* keyword list */
+ /* translate blanks to 04x inside quotes, then quotes to 06x */
+ do forever
+   ps=pos("'",rec)                          /* quote start     */
+   if ps=0 then leave
+   pe=pos("'",rec,ps+1)                     /* quote end       */
+   if pe=0 then return "rc=8;err='Missing end quote'"
+   rec=overlay(translate(substr(rec,ps,pe-ps+1),bc||qc," '"),rec,ps)
+ end
+ /* do split */
+ do while word(rec,1)<>eor                  /* find keyword match */
+   do n=2 to words(rec)
+     w=translate(word(rec,n))
+     if wordpos(w,kwl)>0 then leave
+   end
+   p=wordindex(rec,n)
+   parse var rec vrb data =(p) rec
+   if data='' then data=dflt
+   _v=translate(pfx||vrb)
+   if pos(_v'=',rtn)=0 /*| pos(_v'=""',rtn)>0*/ then,  /* only first */
+     rtn=rtn";"_v"="""strip(data)""""
+ end
+ return 'rc=0'translate(rtn," '",bc||qc)
+
+ /* EDIT macro  */
+IspfEditMac:
+ Address Isredit
+ "(ds)=dataset"
+ "(mb)=member "
+ ?end=0
+ do queued()
+   parse pull $r
+   $r=strip($r)
+   ?end= wordpos($r,'CANCEL END')>0
+   ""$r
+ end
+ if \?end then "CANCEL"
+ return 0
+
+Mask:
+ trace off
+ if arg()=0 then return 0
+ parse arg msk,str,mchr
+ if arg()=1 then str=r
+ parse value word(mchr '*%',1) with mchr 1 mcm +1 mco  /* split mask chrs    */
+ parse value 1 1 length(msk) length(str) with mp sp ml sl .
+ do while mp<=ml & sp<=sl
+   select
+     when substr(msk,mp,1)=mco then,                   /* mask starts with % */
+       parse value mp+1 sp+1 with mp sp                /* bump ptrs          */
+     when substr(msk,mp)=mcm then return 1             /* match on rest      */
+     when substr(msk,mp,2)=mchr then do                /* both mask chrs     */
+       mp=mp+1
+       msp=verify(msk,mco,'n',mp+1)                    /* mak sub-str pos    */
+       if msp=0 then return (ml-mp)=(sl-sp)            /* rest mask is %s    */
+       p=verify(msk,mchr,'m',msp)
+       if p>0 then msl=p-msp
+       else msl=ml+1-msp
+       ms=substr(msk,msp,msl)                          /* mask substring     */
+       mpl=msp-mp                                      /* mask chrs len      */
+       p=pos(ms,str,sp+mpl)
+       if p=0 then return 0
+       sp=p-mpl
+     end
+     when substr(msk,mp,1)=mcm then do                 /* '*'                */
+       mp=mp+1                                         /* bump mask          */
+       p=verify(msk,mchr,'m',mp)                       /* -> end mask chr    */
+       if p=0 then return substr(msk,mp)=right(str,ml-mp+1) /* no more maskc */
+       ms=substr(msk,mp,p-mp)                          /* mask substr        */
+       msl=length(ms)
+       mp=p
+       p=pos(ms,str,sp)                                /* locate in string   */
+       if p=0 then return 0                            /* not found          */
+       sp=p+msl
+     end
+     when substr(str,sp,1)<>substr(msk,mp,1) then return 0 /* not matched    */
+     otherwise do
+       p=verify(msk,mchr,'m',mp)                       /* locate msk chr     */
+       if p=0 then return substr(msk,mp)=substr(str,sp)/* no more mask chrs  */
+       l=p-mp
+       if substr(msk,mp,l)<>substr(str,sp,l) then return 0
+       mp=mp+l
+       sp=sp+l
+     end
+   end
+ end
+ return (mp>ml & sp>sl ) | (mp=ml & substr(msk,mp)='*') /* both exhausted ?   */

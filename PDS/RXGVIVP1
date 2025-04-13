@@ -1,0 +1,1121 @@
+/*                                                                rexx
+ REXXGBLV test 0 - initial - basic functions
+*/
+ arg p
+ parse var p . 'PGM('pgm')' . 0 . 'TRC('trc')' .
+ pgm=word(pgm 'REXXGBLV',1)
+ if p<>'' then do
+   say 'Parameters:' p
+   say 'Pgmname:' pgm
+   say 'Trace:  ' trc
+ end
+ Interpret "say 'Returned version:'" pgm"('version')"
+ say ''
+
+ /* signal v050 */
+
+ F='foxtrot'
+ D='delta'
+ Delta='d'
+ X='xerox'
+ K='kilo'
+ E='echo'
+ M='midway'
+
+ Call RunPgm 'rlist var(*)','List all known variables...',0
+ Call RunPgm 'save var(D*) ','Save D*',0
+ Call RunPgm 'list','List pool, should only contain D*',0
+ if rexxgblv_vlistn<>2 then,
+   exit xmsg('Number of variables listed is' rexxgblv_vlistn+0', not 2',8)
+ Call RunPgm 'save var(*)','Save all known variables...',0
+ Call RunPgm 'list'
+
+ say 'Variables before drop'
+ Call DoListVar 'F D X K E M '
+
+ drop  F D X K E M
+ say 'Variables after drop'
+ Call DoListVar 'F D X K E M '
+
+ Call RunPgm 'load','Reload saved variables',0
+ say 'Variables after load'
+ Call DoListVar 'F D X K E M '
+
+ /* compare contents after load */
+ if  F<>'foxtrot' then exit xmsg('var F not loaded ok',8)
+ if  D<>'delta'   then exit xmsg('var D not loaded ok',8)
+ if  X<>'xerox'   then exit xmsg('var X not loaded ok',8)
+ if  K<>'kilo'    then exit xmsg('var K not loaded ok',8)
+ if  E<>'echo'    then exit xmsg('var E not loaded ok',8)
+ if  M<>'midway'  then exit xmsg('var M not loaded ok',8)
+ say 'Variables reloaded successfully'
+ say ''
+
+ /* now test subset of variables */
+ Call RunPgm 'drop','Drop variable pool',0
+ say 'Test subset of variables'
+ va1='kilroy'
+ va2=' was'
+ va3='  here'
+ vb1='    yesterday'
+ qq1='q-var 1'
+ qq2='q-var 2'
+ Call RunPgm 'save var(v*)',,0
+ Call RunPgm 'save var(q*)',,0
+ Call RunPgm 'list','List store',0
+ parse value 'winter is comming' with va1 va2 va3
+ vb1='day before yesterday'
+ say 'va1-3 and vb1 set to:' va1 ','va2','va3','vb1
+ Call RunPgm 'rlist var(v*)','List actual',0
+
+ Call RunPgm 'load  var(va*)','reload va*',0
+ if REXXGBLV_VLOADN<>3 then exit xmsg('# of records loaded not 3',20)
+ say ''
+
+ say 'Call IVP2'
+ if RxGvIvp2()<>0 then exit 8
+ say 'Call IVP2 done'
+
+ Call RunPgm 'rlist var(v*)','List actual after update of va*',0
+ if va1<>'kilroy' then exit xmsg('var VA1 not loaded ok',8)
+ if vb1<>'day before yesterday' then exit xmsg('var VB1 overwritten',8)
+ say 'Variables successfully replaced'
+ say ''
+
+ say 'Test export / import'
+ drop data.
+ data='alpha beta foxtrot delta xerox kilo echo midway'
+ datan=200
+ data.0=datan
+ save.0=datan
+ expml=0
+ do n=1 to datan
+   data.n=time('l') copies(data' ',n)
+   save.n=data.n
+   expml=max(expml,length(data.n))
+ end
+ say datan 'test records generated for export, size of last:',
+   length(data.datan) 'size of largest:' expml
+ cc=RunPgm('rexport var(data.) ',,0)
+ say 'data.0 after export:' data.0
+ drop data.
+
+ cc=RunPgm('rimport',,0)
+ impml=0
+ say 'data.0 after import:' data.0
+ do n=0 to datan
+   if data.n<>save.n then do
+     say 'Data not matched at #' n
+     say '  Old:   ' save.n
+     say '  Reload:' data.n
+     exit 20
+   end
+   impml=max(impml,length(data.n))
+ end
+ if impml<>expml then,
+   exit xmsg('imported maxlength' impml 'does not match saved',20)
+ say 'Imported data matches exported'
+ drop data. save.
+ say ''
+
+ /* demo stem-index feature
+    for each data.name a data.n is created, plus a data.0  */
+ say 'Make index over stem. (INDEX)'
+ data.f='foxtrot'
+ data.d='delta'
+ data.x='xerox'
+ data.k='kilo'
+ data.e='echo'
+ data.m='midway'
+ data.2='two'
+ data.9='niner'
+ Call RunPgm 'rlist var(data.)','data. before',0
+ Call RunPgm 'rindex var(data.) stem(index.)','make index',0
+ say ''
+ Call RunPgm 'rlist var(index.)'
+ say ''
+ if index.0<>8 then exit xmsg('index.0 is' index.0', not 8')
+ say 'data.0=6 as expected'
+ say ''
+ Call RunPgm 'rlist var(data.)','After'
+
+ say 'Make index over stem. (STEMIX)'
+ CAR.BMW     = 'german car make'
+ CAR.FORD    = 'USA car make'
+ CAR.MAZDA   = 'japanese car make'
+ CAR.PEUGEOT = 'french car make'
+ Call RunPgm 'stemix stem(car.) ',0
+ Call RunPgm 'rlist var(car.)'
+ if car.0<>4 then exit xmsg('Stemix not correct',8)
+
+ /* test COPY (build 048) */
+ say ''
+ say 'Test COPY'
+ Call RunPgm 'copy var(data.) as(zdata.)'
+ Call RunPgm 'rlist var(data.)'
+ testcopyn=REXXGBLV_RLISTN
+ say REXXGBLV_RLISTN+0 'data. entries found'
+ Call RunPgm 'rlist var(zdata.)'
+ say REXXGBLV_RLISTN+0 'zdata. entries found'
+ if testcopyn<>REXXGBLV_RLISTN then exit xmsg('** missmatch',20)
+ say 'counts match'
+ drop data. zdata.
+
+ /* demo var-index feature introduced in build 049
+    for each data* name a stem.n is created, plus a stem.0  */
+ say 'Make index over data. (VARIX)'
+ drop data. a b c d e f g h i j k l m n o p q r s t u v w x y z
+ data.f='foxtrot'
+ dataf ='foxtrot'
+ data.d='delta'
+ data.x='xerox'
+ data.k='kilo'
+ data.kilo='1000g'
+ datae ='echo'
+ data.e='echo'
+ data.m='midway'
+ drop #data.
+ Call RunPgm 'rindex var(data*) stem(#data.)','make var index',0
+ say ''
+ if #data.0<>11 then exit xmsg('#data.0 ne 11, it is' #data.0)
+ say '#data.0=11 as expected'
+ say ''
+ do n=1 to #data.0
+   say left('#data.'n,12) left(#data.n,20)
+ end
+ say ''
+
+ /* test RETURN modification (build 049) */
+ say ''
+ say 'Test RETURN'
+ cc=rexxgblv('return var(t1)')   /* non-existing variable */
+ if cc<>'' then exit xmsg('return var(t1) returned' cc', not null')
+ say 'return var(t1) returned null as expected'
+ cc=rexxgblv('add var(t1) value(test) ')
+ cc=rexxgblv('return var(t1)')
+ if cc<>'test' then exit xmsg('return var(t1) returned' cc', not ''test''')
+ say 'return var(t1) returned ''test'' as expected'
+ cc=rexxgblv('return var(t1) pool(t1)')
+ if cc<>'' then exit xmsg('return var(t1) pool(t1) returned' cc', not null')
+ say 'return var(t1) pool(t1) returned null as expected'
+ longvar=copies(xrange('a','z'),100)
+ say 'length of longvar:' length(longvar)
+ cc=rexxgblv('save var(longvar)')
+ nv=rexxgblv('return var(longvar)')
+ if nv<>longvar then exit xmsg('returned data not eq LONGVAR variable')
+ say 'Test RETURN successful, length of returned value is' length(nv)
+ drop nv longvar
+
+ /* test LOADDROP (build 050) */
+V050:
+ say ''
+ say 'Test LOAD&DROP (build 050)'
+ v050.v1='Kilroy'
+ v050.v2='was'
+ v050.v3='here'
+ Call RunPgm 'save var(v050.) pool(v050)'
+ say REXXGBLV_VSAVEN+0 'entries saved'
+ if REXXGBLV_VSAVEN<>3 then exit xmsg('Error, should have been 3')
+ drop v050.
+ call RunPgm 'rlist var(v050.)','After drop'
+ say REXXGBLV_RLISTN+0 'entries listed'
+ if REXXGBLV_RLISTN<>0 then exit xmsg('Error, should have been 0')
+ Call RunPgm 'map'
+ Call RunPgm 'map xtended'
+ Call RunPgm 'loaddrop var(v050.) pool(v050)'
+ say 'Entries loaded:' REXXGBLV_VLOADN +0
+ if REXXGBLV_VLOADN<>3 then exit xmsg('Error, vloadn should have been 3')
+ cc=RunPgm('list pool(v050)')
+ if REXXGBLV_VLISTN<>0 then exit xmsg('Error, vlistn should have been 0')
+
+ /* test V051 storage creep fixed */
+V051:
+ say ''
+ say 'v051 test'
+ rgn1=RgnInUse()
+ cc=RexxGblv('version')
+ rgn2=RgnInUse()
+ if rgn2<>rgn1 then,
+   exit xmsg('Storage creep detected, region increased by' rgn2-rgn1'K',8)
+ say 'v051 passed test, region use stayed at' space(rgn1)'K'
+
+ /* test V054 - INDEX fix, full tracing  */
+V054:
+ say ''
+ say "v054 test '"index"'"
+ v054d.0 ='zero'
+ v054df  ='foxtrot'
+ v054dd  ='delta'
+ v054d.n ='Norway'
+ v054d.6 ='six'
+ Call RunPgm 'Save  var(v054d*)   pool(indextest)'
+ Call RunPgm 'Index stem(v054x.)  pool(indextest)'
+ if v054x.0<>5 then,
+   exit xmsg('V054 - Index stem size is' v054x.0', 5 was expected')
+ say 'v054 passed index test, index stem size is 5'
+ Call RunPgm 'Drop pool(indextest)'
+ drop v054d. v054x.
+ Call V054TestTrace
+
+ /* test V055 - PULL  */
+V055:
+ say ''
+ say "v055 test '"PULL"'"
+ v055d.0 ='zero'
+ v055df ='foxtrot'
+ v055dd ='delta'
+ v055d.n ='Norway'
+ v055d.6 ='six'
+ parse value 'kilroy was here' with v055p.1 v055p.2 v055p.3
+ Call RunPgm 'Save var(v055*) pool(i055)'
+ Call RunPgm 'Pull var(v055d*) pool(i055)'
+ say 'loadcnt:' rexxgblv_vloadn', delcnt:' rexxgblv_vdeln
+ if rexxgblv_vloadn<>5 | rexxgblv_vdeln<>5 then ,
+    exit xmsg('Unexpected values, both should have benn 5',8)
+ Call RunPgm 'List  pool(i055)'
+ if rexxgblv_vlistn<>3 then exit xmsg('List should have shown 3 records',8)
+ Call RunPgm 'RList var(v055d*)'
+ if rexxgblv_rlistn<>5 then exit xmsg('List should have shown 5 records',8)
+ Call RunPgm 'Drop pool(i055)'
+ drop v055d. v055p. v055dd v055df
+
+ /* test V056 - ADD, old and new   */
+V056:
+ say ''
+ say 'v056 test ADD'
+ Call RunPgm 'drop pool(i056test)'
+ testdata1=mvsvar('sysname') date() time('l')
+ say 'testdata:' testdata1
+ Call RunPgm 'add var(td1) value('testdata1') pool(i056test)'
+ Call RunPgm 'List  pool(i056test)'
+
+ testdatavar='i056_test_variable'
+ zz=Value(testdatavar,mvsvar('sysname') date() time('l'))
+ say 'testdatavar/testdata:' testdatavar'/'Value(testdatavar)
+ Call RunPgm 'add var('testdatavar') valvar('testdatavar') pool(i056test)'
+ Call RunPgm 'List  pool(i056test)'
+
+ say 'test +1'
+ Call RunPgm 'add var(i056var.+) valvar('testdatavar') pool(i056test)'
+ Call RunPgm 'List  pool(i056test)'
+
+ /* now verify contents */
+ v = rexxgblv('return var(td1) pool(i056test)')
+ if v<>testdata1 then exit xmsg("var td1 not '"testdata1"'",8)
+ v = rexxgblv('return var('testdatavar') pool(i056test)')
+ if v<>value(testdatavar) then,
+   exit xmsg('var' testdatavar 'not' value(testdatavar),8)
+ v = rexxgblv('return var(i056var.0) pool(i056test)')
+ if v<>1 then exit xmsg("var i056var.0 not 1",8)
+ v = rexxgblv('return var(i056var.1) pool(i056test)')
+ if v<>value(testdatavar) then,
+   exit xmsg('var i056var.1 not' value(testdatavar),8)
+ say ''
+
+ /* ADD ok  */
+ Say 'ADD and V056 ok'
+
+ /*---------------- list to stem - build 057 -------------*/
+ drop ls.
+ call drwhodata
+ cc=RunPgm('save var(drwho*) pool(test057)',,0)
+ cc=RunPgm('list pool(test057) liststem(ls.)',,0)
+ do n=0 to ls.0
+   say 'ls.'n '=' ls.n
+ end
+ if ls.0<>4+drwho.0 then,
+   exit xmsg('ls.0 is' 0+ls.0', not' 4+drwho.0,8)
+ drop drwho.
+ say 'List DrWho stem... ('ls.0' entries)'
+ do n=1 to ls.0
+   say ls.n
+ end
+ cc=RunPgm('drop pool(test057)',,0)
+ drop ls. drwho.
+
+ /*---------------- long variable names ------------------*/
+ testinganextremelylongstemnameaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz.1=,
+ 'testinganextremelylongstemdataaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1'
+ testinganextremelylongstemnameaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz.2=,
+ 'testinganextremelylongstemdataaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2'
+ testinganextremelylongstemnameaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz.3=,
+ 'testinganextremelylongstemdataaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3'
+ cc=RunPgm('save var(testing*) pool(longvar)',,0)
+ cc=RunPgm('list pool(longvar)',,0)
+ drop ,
+ testinganextremelylongstemnameaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz.
+ cc=RunPgm('load  pool(longvar)',,0)
+ say ''
+
+ /*---------------- map PVT - build 057     -------------*/
+ cc=RunPgm('map',,0)
+
+ /*---------------- test invalid command handling -------*/
+ kilroy='was here'
+ cc=RunPgm('zave var(kilroy) trace',,8)
+ cc=RunPgm('save vzr(kilroy)',,8)
+ say ''
+
+V060:
+ /* V060 - test RSTAT              */
+ Call DrWhoData
+ say 'test V060 - RSTAT'
+ Call RunPgm('rlist var(DrWho.)')
+ xl=0
+ do n=0 to drwho.0
+   xl=xl+length(drwho.n)
+ end
+ say 'RSTAT expected length' xl
+ say ''
+ r = RunPgm('rstat var(drwho.)')
+ say 'RSTAT returned:' r
+ if word(r,4)+0 <> xl then exit xmsg('Length missmatch',8)
+
+ /* v060 - test data pattern check */
+ v060xn=2 /* expected # of records */
+ Call RunPgm 'rindex var(drwho*) data(*program*) stem(#data.)',,
+             'make var index',0
+ say ''
+ if #data.0<>v060xn then exit xmsg('#data.0 ne' v060xn ', it is' #data.0)
+ say '#data.0='v060xn 'as expected'
+ say ''
+ do n=1 to #data.0
+   say left('#data.'n,12) left(#data.n,20) value(#data.n)
+ end
+ say ''
+
+ Call RunPgm 'dropsave var(drwho*) data(*program*) pool(drwho)',,
+             'make pool from drwho',0
+ Call RunPgm 'list pool(drwho)','list drwho pool',0
+ if REXXGBLV_VLISTN<>v060xn,
+ then exit xmsg('# records in pool is not' v060xn,20)
+ drop drwho drwhobox drwhowhat drwhowho
+
+ /*- Import from null dataset - build 061                -*/
+ zz=bpxwdyn('alloc new delete dd(b061dd)',
+   'lrecl(80) recfm(f,b) tracks space(1,1) unit(sysda)')
+ Call RunPgm 'import pool(b061) dd(b061dd)','import from null ds',8
+ zz=bpxwdyn('free dd(b061dd)')
+ say ''
+
+ /*---- rc=4 when no records saved or loaded - build 063 -*/
+ drop kilroy kilroy.
+ say 'test rc=4 when no records returned - build 063'
+ text='kilroy was here'
+ zz=RexxGblv('save var(text) pool(p063)')
+ cc=RunPgm('load var(test) pool(p063)',,4)
+ if cc<>4 then exit xmsg('Null load should set rc 4',20)
+ cc=RunPgm('load var(text) pool(z063)',,4)
+ if cc<>4 then exit xmsg('Null load should set rc 4',20)
+ say ''
+
+ say 'Save non-existing descrete variable'
+ cc=RexxGblv('save var(kilroy) pool(p063)')
+ if cc<>4 then exit xmsg('Null save should set rc 4',20)
+ say 'rc='cc 'text='rexxgblv_msg
+ say ''
+
+ say 'Save non-existing generic variable'
+ cc=RexxGblv('save var(kilroy.) pool(p063)')
+ if cc<>4 then exit xmsg('Null save should set rc 4',20)
+ say 'rc='cc 'text='rexxgblv_msg
+ cc=RexxGblv('drop pool(p063)')
+ say ''
+
+ say 'V065..........'
+ drop data. phal. text. kilroy  je. jest. jester. copydata.
+ say 'Copy pool vars'
+ data.f='foxtrot'
+ data.x='xerox'
+ data.k='kilo'
+ data.m='midway'
+ phal.a='alpha'
+ phal.b='beta'
+ text.1='Kilroy was here'
+ text.2='Dr Who is a british TV series'
+
+ Call RunPgm 'save var(data.) pool(V065P1)','',0
+ Call RunPgm 'save var(phal.) pool(V065P1)','',0
+ Call RunPgm 'list pool(V065P1)','',0
+ Call RunPgm 'save var(text.) pool(V065P2)','',0
+ Call RunPgm 'list pool(V065P2)','',0
+
+ say 'Descrete'
+ Call RunPgm 'PoolCopy pool(V065P1) pool2(V065P2) var(data.x)','',0
+ if rexxgblv_vsaven<>1 then exit xmsg('save# ne 1',8)
+ Call RunPgm 'list pool(V065P2)','',0
+
+ say 'Generic'
+ Call RunPgm 'PoolCopy pool(V065P1) pool2(V065P2) var(phal.) ','',0
+ if rexxgblv_vsaven<>2 then exit xmsg('save# ne 2',8)
+ Call RunPgm 'list pool(V065P2)','',0
+
+ say 'ExportU'
+ Call RunPgm 'export pool(V065P1)','',0
+ Call RunPgm 'add    pool(V065P3) var(newvar) value(Just testing)','',0
+ Call RunPgm 'exportu pool(V065P3)','',0
+ if rexxgblv_exportn<>7 then exit xmsg('export# ne 7',8)
+ Call RunPgm 'import pool(V065PL)','',0
+ Call RunPgm 'list   pool(V065PL)','',0
+
+ say 'RExportU'
+ kilroy='I was here'
+ Call RunPgm 'Rexportu var(kilroy)','',0
+ if rexxgblv_exportn<>8 then exit xmsg('export# ne 8',8)
+ Call RunPgm 'import pool(V065PL)','',0
+ Call RunPgm 'list   pool(V065PL)','',0
+
+ say 'Export to dsname'
+ expdsn=userid()'.REXXGBLV.EXPORT'
+ if sysdsn("'"expdsn"'")<>'OK' then do
+   cc=bpxwdyn('alloc da('expdsn') rtddn(dd1) new catalog',
+      'space(1,1) tracks recfm(v,b) lrecl(27994) blksize(0)')
+   cc=bpxwdyn('free dd('dd1')')
+ end
+ Call RunPgm 'Export pool(V065P1) ds('expdsn')','',0
+ if rexxgblv_exportn<>6 then exit xmsg('export# ne 6',8)
+
+ say 'Import from dsname'
+ Call RunPgm 'Drop   pool(V065PL)','',0
+ Call RunPgm 'Import pool(V065PL) ds('expdsn')','',0
+ if rexxgblv_importn<>6 then exit xmsg('export# ne 6',8)
+ Call RunPgm 'list   pool(V065PL)','',0
+ if rexxgblv_vlistn<>6 then exit xmsg('vlist# ne 6',8)
+
+ say 'Rename data. -> testing.'
+ Call RunPgm 'save var(data.) pool(V065P1)','',0
+ Call RunPgm 'load var(data.) pool(V065P1) as(jest.)','',0
+ Call RunPgm 'load var(data.) pool(V065P1) as(jester.)','',0
+ Call RunPgm 'load var(data.) pool(V065P1) as(je.) ','',0
+ cc=RexxGblv('rlist var(je*.*)')
+ n= rexxgblv_rlistn+0
+ if rexxgblv_rlistn<>12 then exit xmsg('rlist# ne 12, but' n,8)
+ zz=RexxGblv('drop pool(V065P1)')
+ zz=RexxGblv('drop pool(V065P2)')
+ zz=RexxGblv('drop pool(V065P3)')
+ zz=RexxGblv('drop pool(V065PL)')
+
+ say 'Test copy data. -> copydata.'
+ Call RunPgm 'copy var(data.) as(copydata.)','',0
+ cc=RexxGblv('rlist var(copyd*)')
+ if rexxgblv_rlistn<>4 then exit xmsg('rlist# ne 4',8)
+ say ''
+
+ say '066 Test list with no max lengths'
+ alongvar=copies('Kilroy wsa here',20)
+ l=length(alongvar)
+ cc=RexxGblv('dropsave var(alongvar) pool(p066)')
+ cc=RexxGblv('list pool(p066) nw(0) dw(0) liststem(l066.)')
+ if length(l066.1)<>309 then exit xmsg('Listvar length is',
+    length(l066.1)', should have been 309')
+ say 'Test ok'
+ cc=RexxGblv('drop pool(p066)')
+ drop l066. alongvar
+ say ''
+
+ say '068 Test multiple words in varname'
+ zz=Rexxgblv('drop pool(t068)')
+ drop data. t.
+ t.aalpha   = '1st letter'
+ t.abeta    = '2nd letter'
+ t.acharlie = '1st letter'
+ t.balpha   = '1st letter'
+ t.bbeta    = '2nd letter'
+ t.bcharlie = '1st letter'
+ t.calpha   = '1st letter'
+ t.cbeta    = '2nd letter'
+ t.ccharlie = '1st letter'
+ f          = 'foxtrot'
+ foxtrot    = '5th letter'
+ l          = 'lexicon'
+ lex        = 'lex luthor'
+ data.first = 'just testing'
+ data.second= 'another test'
+
+ say '- Save 1 variable FOXTROT'
+ vtxn=1
+ Call RunPgm 'save var(foxtrot) pool(t068) ','',0
+ vtn=rexxgblv_vsaven+0
+ zz=Rexxgblv('list pool(t068) ')
+ if vtn<>vtxn then exit xmsg('# of records saved is' vtn', not' vtxn,20)
+ say ''
+
+ say '- Save 9 variables F, T.A*, T.C* and L*'
+ vtxn=9
+ Call RunPgm 'save var(f t.a* t.c* l*) pool(t068) ','',0
+ vtn=rexxgblv_vsaven+0
+ zz=Rexxgblv('list pool(t068)')
+ if vtn<>vtxn then exit xmsg('# of records saved is' vtn', not' vtxn,20)
+ say ''
+
+ say '- List 5 variables *CHAR*, *BET* and F'
+ vtxn=5
+ Call RunPgm 'list var(*char* *bet* f) pool(t068) ','',0
+ vtn=rexxgblv_vlistn+0
+ if vtn<>vtxn then exit xmsg('# of records listed is' vtn', not' vtxn,20)
+
+ say '- List 5 variables *BET*, *CHAR* and F to stem lst2.'
+ vtxn=5
+ Call RunPgm 'list var(*char* *bet* f) pool(t068) liststem(lst2.) ','',0
+ vtn=rexxgblv_vlistn+0
+ if vtn<>vtxn then exit xmsg('# of records listed is' vtn', not' vtxn,20)
+ if lst2.0<>vtxn then,
+   exit xmsg('# of records in list is' lst2.0', not' vtxn,20)
+ zz=Rexxgblv('rlist var(lst2.) ')
+ drop lst2.
+ say ''
+
+ say '- Delete 4 variables T.AC*, T.CB*, *CHAR* and F'
+ vtxn=4
+ zz=Rexxgblv('list pool(t068)')
+ Call RunPgm 'del  var( T.CB* T.AC* *CHAR* F ) pool(t068)','',0
+ vtn=rexxgblv_vdeln+0
+ zz=Rexxgblv('list pool(t068)')
+ if vtn<>vtxn then exit xmsg('# of records deleted is' vtn', not' vtxn,20)
+ say ''
+
+ say '- Delsave user*, T.B*'
+ drop t. data.
+ t.aalpha   = '1st letter'
+ t.abeta    = '2nd letter'
+ t.acharlie = '1st letter'
+ t.balpha   = '1st letter'
+ t.bbeta    = '2nd letter'
+ t.bcharlie = '1st letter'
+ t.echo     = 'phonetic E'
+ t.foxtrot  = 'phonetic F'
+ data.text1 = 'Dr Who is an english TV series'
+ username = 'Robinson Crusoe'
+ useraddr = 'a deserted island'
+ Call Runpgm 'save pool(t068) var(t. user*) ','',0
+
+ drop t. data. username useraddr
+ zz=Rexxgblv('list pool(t068)')
+ userzip  = '1234'
+ t.bnext    = 'just testing'
+ Call RunPgm 'delsave  var(t.b* user*) pool(t068) ','',0
+ parse value 5 2 with vdxn vsxn
+ parse value rexxgblv_vdeln+0 rexxgblv_vsaven+0 with vdn vsn
+ if vdn<>vdxn then exit xmsg('# of records deleted is' vdn', not' vdxn,20)
+ if vsn<>vsxn then exit xmsg('# of records saved is' vsn', not' vsxn,20)
+ say ''
+
+ say '- Poolcopy from t608 to default'
+ /*zz=Rexxgblv('list pool(t068)')  */
+ Call RunPgm 'poolcopy var(*alpha* *echo*) pool(t068) pool2(*)','',0
+ parse value rexxgblv_vsaven+0 3 with vsn vxn
+ if vsn<>vxn then exit xmsg('# of records copies is' vsn', not' vxn,20)
+ zz=Rexxgblv('drop pool(t068)')
+ say ''
+
+ Call Test069
+ Call Test070
+ Call Test071
+ Call Test072
+ say '';say 'Test build 073074'
+ Call Test073074
+ say '';say 'Test build 077'
+ Call Test077_1
+ Call Test077_2
+ Call Test077_3
+
+ /*-------------------- all ok ---------------------------*/
+ /* end */
+ say ''
+ exit xmsg('All ok',0)
+
+XMsg: if arg(1)<>'' then say arg(1);return word(arg(2) 99,1)
+XMsg2: say arg(1);say '';return word(arg(2) 99,1)
+
+DoListVar:
+ trace off
+ do $=1 to words(arg(1))
+   say left(word(arg(1),$),12)':<'Value(word(arg(1),$))'>'
+ end
+ return 0
+
+RunPgm: /* cmd, text, maxrc   */
+ if arg(2)<>'' then say '->' arg(1) '-' arg(2)
+ else say '->' arg(1)
+ t=''
+ if wordpos(translate(word(arg(1),1)),trc)>0 then t='TRACE'
+ rexxgblv_msg=''
+ Interpret "cc="pgm"(arg(1)" t")"
+ /* say 'retval  "'cc'"'
+ say 'message "'strip(REXXGBLV_msg,'t')'"'  */
+ testvl='VSAVEN VLOADN VLISTN RLISTN RLOADN importn exportn vdeln',
+        'MAXNL MAXDL MAXNDL'
+ do n=1 to words(testvl)
+   w =word(testvl,n)
+   zz=Value(w,Value('REXXGBLV_'w)+0)
+ end
+ if datatype(cc)='NUM' then cc=cc+0
+ say 'rc='cc 'msg="'REXXGBLV_MSG'"',
+     'vsaven='REXXGBLV_VSAVEN+0,
+     'vloadn='REXXGBLV_VLOADN+0,
+     'vlistn='REXXGBLV_VLISTN+0,
+     'vdeln='REXXGBLV_VdelN+0,
+     'rlistn='REXXGBLV_RLISTN+0,
+     'rloadn='REXXGBLV_RLOADN+0,
+     'importn='REXXGBLV_importn+0,
+     'exportn='REXXGBLV_exportn+0,
+     'maxnl='REXXGBLV_MAXNL+0,
+     'maxdl='REXXGBLV_MAXDL+0,
+     'maxndl='REXXGBLV_MAXNDL+0
+ if cc=0 then return 0
+ if arg(3)<>'' then if cc>arg(3) then exit 20
+ return  cc
+
+DataSort: procedure expose data.
+ n=data.0
+ h=n
+ do while h>1
+   h=h%2
+   do i=1 to n-h
+     j=i
+     k=h+i
+     do while data.k<data.j
+       t=data.j
+       data.j=data.k
+       data.k=t
+       if h>=j then leave
+       j=j-h
+       k=k-h
+     end   /*while data.k<data.j*/
+   end     /*i*/
+ end       /*while h>1*/
+ return
+
+/* Return region in use.  Origin: Mark Zelden's REXXSTOR       */
+RgnInUse: Procedure
+Numeric digits 14                            /* dflt of 9 not enough!*/
+ASCB     = C2d(Storage(224,4))               /* current ASCB         */
+LDA      = C2d(Storage(D2x(ASCB + 48),4))    /* local data area      */
+LDAEVVRG = C2d(storage(D2x(LDA + 220),4))    /* >16m reg size        */
+LDAEVVRG = Right(LDAEVVRG/1024,9)            /* convert to kbytes    */
+LDALOAL  = C2d(storage(D2x(LDA + 232),4))    /* <16m reg alloc       */
+LDALOAL  = Right(LDALOAL/1024,9)             /* convert to kbytes    */
+Return  LDALOAL
+
+V054TestTrace: Procedure expose pgm
+ say 'v054 passed trace test'
+ v054.1='Kilroy'
+ v054.2='was'
+ v054.3='here'
+ Call RunPgm 'Save  var(v054.)  pool(tracetest) trace(y)'
+ Call RunPgm 'Drop pool(tracetest)'
+ return 0
+
+MkData:
+ data.f='foxtrot'
+ data.x='xerox'
+ data.k='kilo'
+ data.2='two'
+ data.1='one'
+ data.2='two'
+ data.3='three'
+ data.4='four'
+ data.5='five'
+ data.0=5
+ return 0
+
+MkTextq:
+ "delstack"
+ queue  'Alpha    Doctor Who is a British science-fiction             '
+ queue  'Bravo    television programme produced by the BBC from 1963  '
+ queue  'Charlie  to the present day. The programme depicts the       '
+ queue  'Delta    adventures of the Doctor, a Time Lord a             '
+ queue  'Echo     time-travelling humanoid alien. He explores the     '
+ queue  'Foxtrot  universe in his TARDIS, a sentient time-travelling  '
+ queue  'Golf     space ship. Its exterior appears as a blue British  '
+ queue  'Hotel    police box, which was a common sight in Britain in  '
+ queue  'India    1963 when the series first aired. Along with a      '
+ queue  'Juliet   succession of companions, the Doctor combats a      '
+ queue  'Kilo     variety of foes while working to save               '
+ queue  'Lima     civilisations and help people in need. The show is  '
+ queue  'Mike     a significant part of British popular culture, and  '
+ queue  'November elsewhere it has become a cult television           '
+ queue  'Oscar    favourite.                                          '
+ queue  'Papa      The show has influenced generations of British     '
+ queue  'Quebec   television professionals, many of whom grew up      '
+ queue  'Romeo    watching the series. The programme originally ran   '
+ queue  'Sierra   from 1963 to 1989. After an unsuccessful attempt    '
+ queue  'Tango    to revive regular production in 1996 with a         '
+ queue  'Uniform  backdoor pilot in the form of a television film,    '
+ queue  'Victor   the programme was relaunched in 2005 by Russell T.  '
+ queue  'Whisky   Davies who was showrunner and head writer for the   '
+ queue  'Xray     first five years of its revival, produced in-house  '
+ queue  'Yankee   by BBC Wales in Cardiff. The first series of the    '
+ queue  'Zulu     21st century, featuring Christopher Eccleston ....  '
+ #textq=queued()
+ Return 0
+
+DrWhoData:
+ drop drwho.
+ drwho.1  =  'Doctor Who is a British science-fiction television'
+ drwho.2  =  'Programme produced by the BBC from 1963 to the present'
+ drwho.3  =  'Day. The programme depicts the adventures of The'
+ drwho.4  =  'Doctor, a Time Lord a time-travelling humanoid alien.'
+ drwho.5  =  'He explores the universe in his TARDIS, a sentient'
+ drwho.6  =  'Time-travelling space ship. Its exterior appears as a'
+ drwho.7  =  'Blue British police box, which was a common sight in'
+ drwho.8  =  'Britain in 1963 when the series first aired. Along'
+ drwho.9  =  'With a succession of companions, the Doctor combats a'
+ drwho.10 =  'Variety of foes while working to save civilisations'
+ drwho.11 =  'And help people in need.'
+ drwho.0  =  11
+ drwhowhat=  'Doctor Who is a British sci-fi tv programme from 1963'
+ drwhobox =  'TARDIS looks like a blue British police box'
+ drwhowho =  'a Time Lord working to save civilisations'
+ return 0
+
+Test069: Procedure expose pgm
+ say '- Build 069 testing the AS(xxx) parameter'
+ say 'List data. before'
+ Call MkData
+ zz=RexxGblv('rlist var(data.)')
+ Call RunPgm 'save var(data.) as(s.) pool(T069)'
+ say 'List pool T069'
+ zz=RexxGblv('list pool(T069)')
+ if RexxGblv('return var(s.f) pool(T069)')<>'foxtrot' then,
+  exit xmsg('data s.f in pool not as expected',8)
+ Call RunPgm 'loaddrop var(s.) as(zdata.) pool(T069)'
+ say 'List zdata. after'
+ zz=RexxGblv('rlist var(zdat*)')
+ if zdata.k<>'kilo' then,
+  exit xmsg('data zdata.k not loaded as expected',8)
+
+ say 'build 069 passed..'
+ say ''
+ return
+
+ /* Build 070, rewrite of filter process */
+Test070:
+ say 'Build 070'
+ Call T070data
+
+ say 'List data. before'
+ zz=RexxGblv('rlist var(data.)')
+ Call RunPgm 'save var(data.) pool(T070)'
+ say 'List pool T070'
+ zz=RexxGblv('list pool(T070)')
+ if rexxgblv_vlistn<>datanum then exit xmsg('Listnum ne' datanum,8)
+ say ''
+
+ say 'Save by varname mask'
+ filt1n=5
+ Call RunPgm 'dropsave var(data.) pool(T070) var(data.*li* data.*el*) '
+ say 'List pool T070'
+ zz=RexxGblv('list pool(T070)')
+ if rexxgblv_vlistn<>filt1n then exit xmsg('Listnum ne' filt1n,8)
+ say ''
+ zz=RexxGblv('drop   pool(T070)')
+
+ say 'Load by varname mask'
+ Call T070data
+ text1='Kilroy was here'
+ Call RunPgm 'dropsave pool(T070) var(data.)'
+ say  rexxgblv_vsaven 'entries in pool'
+ drop data.
+ Call RunPgm 'load pool(T070) var(data.*li* data.*el*)'
+ if rexxgblv_vloadn<>filt1n then exit xmsg('Loadnum ne' filt1n,8)
+ zz=RexxGblv('rlist var(data.)')
+ say ''
+ zz=RexxGblv('drop   pool(T070)')
+
+ say 'Save and export by varname mask in 2 steps'
+ Call T070data
+ Call RunPgm 'dropsave var(data.) pool(T070) var(data.*li* data.*el*) '
+ Call RunPgm 'export pool(T070)'
+ if rexxgblv_exportn<>filt1n then exit xmsg('Exportnum ne' filt1n,8)
+ zz=RexxGblv('drop   pool(T070)')
+
+ say 'Import filtered'
+ filt2n=3
+ Call RunPgm 'dropsave var(data.) pool(T070)'
+ Call RunPgm 'export pool(T070)'
+ Call RunPgm 'import pool(T070) var(data.*li*)'
+ drop data.
+ if rexxgblv_importn<>filt2n then exit xmsg('Importnum ne' filt2n,8),
+  + RexxGblv('rlist var(data.)')
+
+ say 'Direct import filtered'
+ drop data.
+ filt3n=5
+ Call RunPgm 'rimport var(data.*li* data.*el*)'
+ if rexxgblv_vloadn<>filt3n then exit xmsg('loadnum ne' filt3n,8),
+  + RexxGblv('rlist var(data.)')
+
+ say 'Import from bad ddname'
+ cc=RexxGblv('import dd(T070gblv)')
+ say 'rc' cc rexxgblv_msg
+ zz=RexxGblv('drop pool(T070)')
+
+ say 'build 070 passed..'
+ say ''
+ return 0
+
+T070data: Procedure expose data. datanum
+ drop data.
+ datanum=13
+ data.Alpha  ='Doctor Who is a British science-fiction'
+ data.Bravo  ='television programme produced by the BBC'
+ data.Charlie='from 1963 to the present day. The programme'
+ data.Delta  ='depicts the adventures of the Doctor, a Time'
+ data.Echo   ='Lord a time-travelling humanoid alien.'
+ data.Foxtrot=' He explores the'
+ data.Golf   ='universe in his TARDIS, a sentient time-travelling'
+ data.Hotel  ='space ship. Its exterior appears as a blue British'
+ data.India  ='police box, which was a common sight in Britain'
+ data.Juliet ='in 1963 when the series first aired. Along with a'
+ data.Kilo   ='succession of companions, the Doctor combats a variety'
+ data.Lima   ='of foes while working to save civilisations and help'
+ data.Mike   ='people in need.'
+ Return 0
+
+Test071: /* Build 071, load with list */
+ drop data. lst.
+ say 'Build 071, load with list'
+ Call T070data
+ Call RunPgm 'save var(data.) pool(T071)'
+ say 'List data in pool'
+ zz=RexxGblv('list pool(t071)')
+ drop data.
+ say ''
+ say 'Load by varname mask, with list to stem'
+ Call RunPgm 'load pool(T071) var(*li* *el*) liststem(lst.)'
+ if REXXGBLV_vloadN<>5 then exit xmsg('vloadn ne 5',8)
+ if lst.0          <>5 then exit xmsg('lst.0 ne 5',8)
+ say 'List retrieved data'
+ do n=1 to lst.0
+   say 'lst.'n '=' left(lst.n,14) '->' value(lst.n)
+ end
+ drop data. lst.
+ zz=RexxGblv('drop  pool(T071)')
+ say 'build 071 passed..'
+ say ''
+ Return 0
+
+Test072: /* Build 072, copy with rename mask */
+ say 'Testing build 072'
+ say 'Copy with rename mask'
+ drop data. t072data. test.
+ Call T070data
+ Call RunPgm "Copy var(data.) as(+'T072'*)"         /* add prefix */
+ Call RunPgm 'rlist var(t072*)'
+ if rexxgblv_rlistn<>13 then,
+   exit xmsg('Number of variables copied is' rexxgblv_rlistn+0', not 13',8)
+ Call RunPgm 'Copy var(data.) as(newid.) '         /* replace stem id */
+ Call RunPgm 'rlist var(newid.)'
+ if rexxgblv_rlistn<>13 then,
+   exit xmsg('Number of variables copied is' rexxgblv_rlistn+0', not 13',8)
+ Call RunPgm 'Copy var(data.) as(kkk)'             /* replace stem id */
+ Call RunPgm 'rlist var(kkk*)'
+ if rexxgblv_rlistn<>13 then,
+   exit xmsg('Number of variables copied is' rexxgblv_rlistn+0', not 13',8)
+ drop t072data. newid.
+ Call RunPgm "Copy var(data.) as(*'.'+'.TEST'*)"   /* add qualifier */
+ Call RunPgm 'rlist var(data.*.*)'
+ if rexxgblv_rlistn<>13 then,
+   exit xmsg('Number of variables copied is' rexxgblv_rlistn+0', not 13',8)
+ drop rexxgblv_rlistn rexxgblv_vlistn
+ Call RunPgm "Copy var(data.) as(?-LI?+'ABCD.'*?*?)" /* select        */
+ Call RunPgm 'rlist var(abcd.)'
+ if rexxgblv_rlistn<>6 then,
+   exit xmsg('Number of variables copied is' rexxgblv_rlistn+0', not 6',8)
+ drop abcd.
+ /* Build 072, save with rename mask */
+ say 'Save with rename mask'
+ drop data. t072data. test.
+ Call T070data
+ Call RunPgm "Save var(data.) as(+'T072'*) pool(t072)"
+ Call RunPgm 'list var(t072*) pool(t072)'
+ if rexxgblv_vlistn<>13 then,
+   exit xmsg('Number of variables copied is' rexxgblv_vlistn+0', not 13',8)
+ zz=RexxGblv('drop pool(t072)')
+ drop data. t072data. test.
+ Return xmsg('build 072 passed..')
+
+Test073074: /* Build 073+074, save from stack, load to stack */
+ say 'Testing build 073'
+
+ say 'Save default from stack'
+ Call MkTextq
+ Call RunPgm 'save stack pool(dstack)'
+ sn=rexxgblv_vsaven+0
+ Call RunPgm 'list pool(dstack)'
+ if sn<>#textq then,
+   exit xmsg('Number of variables saved is' sn', not' #textq,8)
+ say ''
+
+ say 'Load default to stack'
+ Call RunPgm 'load stack pool(dstack)'
+ ln=queued()
+ say 'Loaded='ln
+ do queued()
+   parse pull r
+   say r
+ end
+ if ln<>#textq then,
+   exit xmsg('Number of variables loaded is' ln', not' #textq,8)
+ say ''
+
+ say 'Save variables from stack'
+ Call MkTextq
+ Call RunPgm 'save stack as(vstack.) gen0'
+ sn=rexxgblv_vsaven+0
+ Call RunPgm 'list var(vstack.)'
+ if sn<>#textq then,
+   exit xmsg('Number of variables saved is' sn', not' #textq,8)
+ say ''
+
+ say 'Load variables to stack'
+ Call RunPgm 'load var(vstack.) tostack '
+ ln=queued()
+ say 'Loaded='ln
+ do queued()
+   parse pull r
+   say r
+ end
+ if ln<>#textq then,
+   exit xmsg('Number of variables loaded is' ln', not' #textq,8)
+ if word(r,1)<>'Zulu' then,
+   exit xmsg('Last record loaded do not start with Zulu:' r,8)
+ say ''
+
+ say 'Load stack entries to stem'
+ Call RunPgm "load stack pool(dstack) as(stack.)"
+ ln=rexxgblv_vloadn+0
+ Call RunPgm 'rlist var(stack.)'
+ if ln<>#textq then,
+   exit xmsg('Number of variables loaded is' ln', not' #textq,8)
+ drop stack.
+
+ say 'Load stack entries to stem, generate stem.0'
+ Call RunPgm "load stack pool(dstack) as(stck2.) gen0"
+ ln=rexxgblv_vloadn+0
+ Call RunPgm 'rlist var(stck2.)'
+ if stck2.0<>#textq then,
+   exit xmsg('Number var stck2.0 is' stck2.0', not' #textq,8)
+
+ zz=RexxGblv('drop pool(dstack)')
+ zz=RexxGblv('del  var(vstack.)')
+ Return xmsg('build 073074 passed..')
+
+Test077_1:
+ drop txt.
+ txt.1='SBK001 2023081809213458 ZABKPDAY A.DSNBK.G0663V00 001 17647'
+ txt.2='SBK002 2023081609135420 ZABKPDAY B.DSNBK.G0661V00 001 17642'
+ txt.3='SBK003 2023081709301631 ZABKPDAY C.DSNBK.G0662V00 001 17646'
+ txt.4='SBK004 2023081509382480 ZABKPDAY D.DSNBK.G0660V00 001 17647'
+ txt.5='000002 2022030110064103 TAPEPUT  XX.TAPEDS.T44    001 3    '
+ txt.6='000003 2022030110034717 TAPEPUT  YY.TAPEDS.T44    001 3    '
+ txt.7='000004 2022022415001508 TAPEPUT  ZZ.TAPEDS.T43    001 3    '
+
+ Call RunPgm 'rexport var(txt.*) dd(RXGVEXP)',,0
+ drop txt.
+ Call RunPgm 'rimport data(*B.DSN*) dd(RXGVEXP)',,0
+ cc=RexxGblv('rlist var(txt.*)')
+ drop txt.
+ txt.2='SBK002 2023081609135420 ZABKPDAY B.DSNBK.G0661V00 001 22222'
+ Call RunPgm 'rexportu var(txt.2) dd(RXGVEXP)',,0
+ drop txt.
+ cc=RexxGblv('rlist var(txt.*)')
+ drop txt.
+ /* say list updated data */
+ Call RunPgm 'rimport data(*.DSNBK.*) dd(RXGVEXP)',,0
+ cc=RexxGblv('rlist var(txt.*)')
+ drop txt.
+ if rexxgblv_rlistn<>4 then exit xmsg('List should have shown 4 records',8)
+ return xmsg('Test077_1 passed')
+
+Test077_2:
+ say 'Test APPEND parameter'
+ drop v077l1. v077l2.
+ Call Make077l2
+ Call RunPgm 'dropsave var(v077l2.) pool(V077_2)',,0
+ cc=RexxGblv('list pool(V077_2) ')
+ if rexxgblv_vlistn<>13 then exit xmsg('List should have shown 13 records',8)
+ drop v077l2.
+ Call Make077l1
+ Call RunPgm 'load var(v077l2.) pool(V077_2) as(v077l1.) append ',,0
+ zz=RexxGblv('drop pool(V077_2)')
+ do n=1 to v077l1.0
+   say left('v077l1.'n,6)'=' v077l1.n
+ end
+ if v077l1.0<>26 then exit xmsg('Bad l.0' l.0', should have been 26')+8
+ drop v077l1. v077l2.
+ return xmsg('Test077_2 passed')
+
+Test077_3:
+ Call RunPgm 'drop pool(V077_3)',,0
+ Call RunPgm 'MAP','After initial drop..'
+ Call RunPgm 'add var(text) value(Just testing) pool(V077_3)',,0
+ Call RunPgm 'MAP','After add..'
+ Call RunPgm 'list pool(V077_3)'
+ Call RunPgm 'loaddrop pool(V077_3)',,0
+ Call RunPgm 'MAP','After LoadDrop..'
+ Call RunPgm 'drop pool(V077_3) '
+ Call RunPgm 'MAP','After Drop..'
+ Call RunPgm 'list pool(V077_3)'
+ if rexxgblv_vlistn<>0 then exit xmsg('List should have shown 0 records',8)
+ return xmsg('Test077_3 passed')
+
+Make077l1:
+ drop v077l1.
+ v077l1.1 ='Alpha    '
+ v077l1.2 ='Bravo    '
+ v077l1.3 ='Charlie  '
+ v077l1.4 ='Delta    '
+ v077l1.5 ='Echo     '
+ v077l1.6 ='Foxtrot  '
+ v077l1.7 ='Golf     '
+ v077l1.8 ='Hotel    '
+ v077l1.9 ='India    '
+ v077l1.10 ='Juliet   '
+ v077l1.11 ='Kilo     '
+ v077l1.12 ='Lima     '
+ v077l1.13 ='Mike     '
+ v077l1.14 ='November '
+ v077l1.0 =14
+ return 0
+
+Make077l2:
+ drop v077l2.
+ v077l2.1 ='Oscar    '
+ v077l2.2 ='Papa      '
+ v077l2.3 ='Quebec    '
+ v077l2.4 ='Romeo     '
+ v077l2.5 ='Sierra    '
+ v077l2.6 ='Tango     '
+ v077l2.7 ='Uniformm  '
+ v077l2.8 ='Victor    '
+ v077l2.9 ='Whisky    '
+ v077l2.10 ='X-ray     '
+ v077l2.11 ='Yankee    '
+ v077l2.12 ='Zulu      '
+ v077l2.0 =12
+ return 0
+
+BubleSort: procedure  /* REXX Bublesort  */
+ arg varp pool .
+ zz=RexxGblv('load var('varp') as(s.) pool('pool')')
+ n=s.0
+ h=n
+ do while h>1
+   h=h%2
+   do i=1 to n-h
+     j=i
+     k=h+i
+     do while s.k<s.j
+       t=s.j
+       s.j=s.k
+       s.k=t
+       if h>=j then leave
+       j=j-h
+       k=k-h
+     end   /*while s.k<s.j*/
+   end     /*i*/
+ end       /*while h>1*/
+ zz=RexxGblv('save var(s.) as('varp') pool('pool')')
+ return

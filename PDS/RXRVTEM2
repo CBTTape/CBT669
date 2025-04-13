@@ -1,0 +1,17 @@
+ /*    ISPF edit macro                                   rexx */
+ say 'RXRVTEM2 running....'
+
+ Address Isredit "MACRO NOPROCESS (p)"
+ Address Isredit
+
+ "find 'Bravo'"
+ "del .zcsr .zcsr"
+ "(r) = line 5"
+ parse var r front '=' back
+ r = strip(front)'=*modified*'
+ "line 5 = (r)"
+ "autosave on"
+ "end"
+
+ say 'RXRVTEM2 done....'
+ exit 0

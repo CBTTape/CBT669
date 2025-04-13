@@ -1,0 +1,6 @@
+)INEXIT LOAD,ISPDPX01
+*ISPDPX01 &ISX1pnlstem
+)END
+
+  This panel allows the entire panel definition, all sections,
+  to be supplied in the DYNP. stem.

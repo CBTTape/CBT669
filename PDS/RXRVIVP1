@@ -1,0 +1,751 @@
+/*                                                                 rexx
+ Test (IVP) the REXXVARS program
+*/
+ say 'Version:' RexxVars('VERSION')
+
+ /* Do standard tests   */
+ address ispexec "control errors return"
+ signal on error name err1
+ signal on syntax name err1
+
+ Call TestList
+ Call TestCopy
+ Call TestIndex
+ Call TestSort
+ Call TestDrop
+ Call TestRename
+ Call TestStem2Tbl
+ Call TestStack2Tbl
+ Call TestTbl2Stem
+ Call TestTbl2Stack
+ Call TestSortDFSP
+ /*ll TestEdit */
+ Call TestTrace
+ Call TestErrors
+
+ /* verify rc when not called a a REXX function */
+ signal off error
+ say 'Test not rexx function'
+ "RexxVars list var(text*)"
+ say 'Not REXX function rc='rc
+ if rc<>24 then call Quit '****Bad rc',8
+ say ''
+
+ /* ok */
+ call Quit 'All ok'
+
+Err1:
+ say 'Error' rc 'in line' sigl':' "ERRORTEXT"(rc)
+ say "SOURCELINE"(sigl)
+ say 'Record read:' rec
+ call quit ,20
+
+Quit:
+ address tso "delstack"
+ if arg(1)<>'' then say arg(1)
+ zispfrc=word(arg(2) 0,1)
+ address ispexec "vput zispfrc shared"
+ exit 0
+
+TestRxrv: /* run test */
+trace off
+ say ''
+ t=arg(1)
+ if arg(3)<>'' then t=t '-' arg(3)
+ say 'Testing ' t
+ cc=RunRxRv(arg(1))
+ say '->rc='cc 'gn='rexxvars_getn+0 'on='rexxvars_outn+0,
+     'rs='space(rexxvars_rsn) 'stat='rexxvars_stat
+ if cc>word(arg(2) 0,1) then do
+   testrc=8
+   zz=Quit('****Bad rc',8)
+ end
+ outn=rexxvars_outn
+ return cc
+
+RunRxRv: /* run pgm */
+ cc=REXXVARS(arg(1))
+ parse var rexxvars_stat . ' NAMEN('rxv_namen')' .,
+   0 . ' OUTN('rxv_outn')' . 0 . ' GETN('rxv_getn')' .,
+   0 . ' SORT('rxv_sort')' . 0 . ' DELN('rxv_deln')' .
+ return cc
+XMsg: if arg(1)<>'' then say arg(1);return word(arg(2) 0,1)
+
+TestList:  Procedure   /* test LIST  */
+ say 'Testing LIST'
+ drop textt. textn.
+
+ Call MkTextw
+ say 'who='who
+ Call TestRxrv 'list var(who)'
+ if rxv_outn<>1 then zz=Quit('Outn is' rxv_outn', not 1',6)
+
+ Call MkTextt
+ Call TestRxrv 'list var(text*) hdr(testhdr)'
+ if rxv_outn<>#textt then zz=Quit('Count is' rxv_outn', not' #textt,6)
+ Call TestRxrv 'list var(text*) ondata(*program*)'
+ if rxv_outn<>4 then zz=Quit('Outn is' rxv_outn', not 4',6)
+
+ drop textt.
+ Call MkTextn
+ Call TestRxrv 'list var(textn.)'
+ if rxv_outn<>#textn then zz=Quit('Outn is' rxv_outn', not' #textn,6)
+
+ name='Jensen'
+ Call MkTextw
+ Call TestRxrv 'list var(  wh*   textn.#   name  ) '
+ tn=#textw + #textn-1 + 1
+ if rxv_namen<>tn then zz=Quit('Namen is' rxv_namen', not' tn,6)
+
+ say 'A very log var'
+ drop textn.
+ Call MkTextt
+ textt.averylongvar = copies('just some data',40)
+ Call TestRxrv 'list var(textt.) nw(*)'
+ Call TestRxrv 'list var(textt.) show(len) lw(130)'
+ Call TestRxrv 'list var(textt.*c*) hdr(no)'
+
+ say 'Test show length'
+ drop textt.
+ Call MkTextn
+ Call  RunRxrv 'list var(textn.)'
+ Call TestRxrv 'list var(textn.# ) show(len) hdr(TEXTN. with length)'
+ say '->textn.0='0+textn.0
+ Call TestRxrv 'list var(textn.# ) show(s0 len)',
+               'hdr(TEXTN. with length and s0) '
+ if rxv_outn<>#textn then zz=Quit('Outn is' rxv_outn', not' #textn,6)
+ say ''
+
+ say 'List mixed'
+ Call Mktextn
+ Call Mktextw
+ Call Mktextt
+ Call TestRxrv 'list var(textn.# textt.*i* who)'
+ if rxv_outn<>37 then call Quit 'outnum is not 37',6
+ say ''
+ say 'List count and skip'
+ Call Mktextn
+ Call TestRxrv 'list var(textn.#) skip(15) count(10)'
+ if rxv_outn<>10 then call Quit 'outnum is not 10',6
+ say ''
+
+ say 'List stack'
+ Call MkTextq
+ q#=queued()
+ if TestRxrv('list stack lw(120) ')<>0 then call quit ,8
+ say 'queud # after list='queued()
+ if queued()<>q# then call quit 'Stacksz after is' queued()', not' q#,8
+ say '>List filtered stack'
+ if TestRxrv('list stack lw(120) onda(*who*)')<>0 then call quit ,8
+ say 'queud # after list='queued()
+ if queued()<>q# then call quit 'Stacksz after is' queued()', not' q#,8
+ say ''
+ address tso "delstack"
+
+ say  'LIST ok'
+ return 0
+
+TestDrop:  Procedure   /* test DROP  */
+ say 'Testing DROP'
+ zz=MkTextn() + MkTextw()
+ Call  RunRxrv 'list var(textn. wh*) hdr(Before drop..)'
+ tn=rxv_outn-3
+ Call TestRxrv 'drop var(whe* textn.8)'
+ Call  RunRxrv 'list var(textn. wh*) hdr(After drop..)'
+ if rxv_outn<>tn then zz=Quit('Outn is' rxv_outn', not' tn,6)
+ say ''
+ return 0
+
+TestRename:  Procedure /* test RENAME */
+ say 'Testing RENAME'
+ Call MkTextw
+ Call  RunRxrv 'list var(wh* c*) hdr(Before rename..)'
+ Call TestRxrv "rename var(wh*) as(+'c'*) "
+ Call  RunRxrv 'list var(wh* c*) hdr(After rename..)'
+ if cwhere<>'here' then zz=Quit('CWHERE  is not "here"',6)
+ if where<>'WHERE' then zz=Quit('WHERE  is not "WHERE"',6)
+ say ''
+ return 0
+
+TestCopy:  Procedure   /* test COPY  */
+ say 'Testing COPY'
+ drop textn. textt. name
+ Call MkTextw
+ Call TestRxrv 'copy var(who) as(name)'
+ Call TestRxRv 'list var(who name)'
+ if rxv_outn<>2 then zz=Quit('Outn is' rxv_outn', not 2',6)
+ if name<>who then zz=Quit('NAME='name 'ne WHO='who,6)
+ say  'test 1 ok'
+
+ Call TestRxrv "copy var(wh*) as(+'q.z'*)"
+ Call RunRxrv 'list var(wh*)'
+ n= rxv_namen
+ Call RunRxrv 'list var(q.z*)'
+ if rxv_namen<>n then zz=Quit('Number of Q.Z*' rxv_namen', not' n,6)
+ if q.zwhat<>what then zz=Quit('Q.ZWHAT' q.zwhat 'ne WHAT='what,6)
+ if q.zwhen<>when then zz=Quit('Q.ZWHEN' q.zwhen 'ne WHEN='when,6)
+ say  'test 2 ok'
+
+ drop ctext.
+ Call MkTextn
+ Call TestRxrv "copy var(textn.) as(+c*) ondata(*Doctor*)"
+ Call RunRxrv 'list var(ctext*)'
+ if rxv_outn<>3 then,
+   zz=Quit('Number of new vars is' rxv_outn', not 3',6)
+ say  'test 3 ok'
+
+ drop ctext.
+ Call TestRxrv 'copy var(textn.#) as(ctext.#) ondata(*Doctor*)'
+ Call RunRxrv 'list var(ctext*)'
+ if ctext.0<>3 then zz=Quit('ctext.0 is' ctext.0', not 3',6)
+ drop ctext.
+ say  'test 4 ok'
+
+ drop ctextn. textcn.
+ Call TestRxrv "copy var(textn.#) as(+c*'.'.) ondata(*Doctor*) renum"
+ Call RunRxrv 'list var(ctext*)'
+ if ctextn.0<>3 then zz=Quit('ctextn.0 is' ctextn.0', not 3',6)
+ say  'test 5 ok'
+
+ drop ctextn.
+ Call TestRxrv "copy var(textn.#) as(*'.'+'c.') ondata(*Doctor*) renum"
+ Call RunRxrv 'list var(textnc*)'
+ if textnc.0<>3 then zz=Quit('textnc.0 is' textnc.0', not 3',6)
+ if rxv_outn<>4 then zz=Quit('Outn is' rxv_outn', not 4',6)
+ say  'test 6 ok'
+
+ drop ctextn. textcn. textnc.
+ Call TestRxrv "copy var(textn.#) as(*'.'+'c.') ondata(*Doctor*) renum"
+ Call RunRxrv 'list var(textc*)'
+ if textnc.0<>3 then zz=Quit('textnc.0 is' textnc.0', not 3',6)
+ say  'test 7 ok'
+
+ Call TestRxrv  "copy var(textn.#) as(newtext1.#) ondata(*Doctor*)"
+ Call RunRxrv 'list var(newtext1*)'
+ if  newtext1.0<>3 then zz=Quit('newtext1.0 is' newtext1.0', not 3',6)
+ drop newtext1.
+ say  'test 8 ok'
+
+ Call TestRxrv  "copy var(textn.#) as(newtext2.) ondata(*Doctor*)"
+ Call RunRxrv 'list var(newtext2*)'
+ if  newtext2.0<>3 then zz=Quit('newtext2.0 is' newtext2.0', not 3',6)
+ drop newtest1. newtest2. textc. ctest.
+ drop newtext2.
+ say  'test 9 ok' ; say ''
+
+ say 'test 10 - merge 2 stems'
+ zz = MkCars()
+ zz=RexxVars('list var(textn. ) hdr(Textn. before) ')
+ zz=RexxVars('list var(cars.)   hdr(Cars. before)')
+ tn=#textn + #cars
+ Call TestRxRv 'Copy var(cars. textn.# ) as(out.#)'
+ zz=RexxVars('list var(out.) hdr(OUT. after append)')
+ if rxv_outn<>tn then zz=quit('outn is' rxv_outn', ne' tn,6)
+ if word(out.31,1)<>'Hotel' then zz=quit('bad out.31, ne Hotel',6)
+ drop textn.
+ say  'test 10 ok' ;say ''
+
+ say 'test 11 - Append copy with 1 input stem'
+ parse value '6 ford audi wv mazda bmw hyundai' with,
+  add.0 add.1 add.2 add.3 add.4 add.5 add.6
+ tn=tn+add.0
+ Call TestRxRv 'Copy var(add.#) as(out.#) append'
+ zz=RexxVars('list var(out.) hdr(OUT. after append)')
+ if rxv_outn<>tn then zz=quit('outn ne' tn,6)
+ if out.38<>'hyundai' then zz=quit('bad out.38, ne hyundai',6)
+ drop out. textn.
+ say  'test 11 ok' ;say ''
+
+ say 'test 12 - copy with skip and count'
+ zz = MkTextn()
+ Call TestRxRv 'Copy var(textn.#) as(out.#) skip(10) count(8)'
+ Call  RunRxRv 'List var(out.#) show(s0)'
+ if out.0<>8 then zz=quit('bad out.0, ne 8',6)
+ if word(out.1,1)<>'Kilo' then,
+   zz=quit('word(out.1,1) should have been Kilo',6)
+ if word(out.8,1)<>'Romeo' then,
+   zz=quit('word(out.8,1) should have been Romeo',6)
+ say 'test 12 ok';say ''
+ drop out. textn.
+
+ say 'test 13 - copy last 4'
+ zz = MkTextn()
+ Call TestRxRv 'Copy var(textn.#) as(out.#) last(4) '
+ Call  RunRxRv 'List var(out.#) show(s0)'
+ if out.0<>4 then zz=quit('bad out.0, ne 4',6)
+ if word(out.1,1)<>'Whisky' then,
+   zz=quit('word(out.1,1) should have been Whisky',6)
+ if word(out.4,1)<>'Zulu' then,
+   zz=quit('word(out.4,1) should have been Zulu',6)
+ say 'test 11 ok';say ''
+ say 'COPY ok';say ''
+ return 0
+
+TestIndex: Procedure   /* test INDEX */
+ say 'Testing index'
+ Call MkCars
+ say 'List car* before'
+ Call RunRxrv 'list var(car*)'
+ Call TestRxrv 'Index var(cars.) as(cars.)'
+ say 'List car* after '
+ Call RunRxrv 'list var(car*)'
+ if cars.0<>#cars then,
+   zz=Quit('Number of index vars is' cars.0', not' #cars,6)
+ tt='CARS.HYUNDAI'
+ if cars.4<>tt then zz=Quit('CARS.4 is' cars.4', not' tt,6)
+ Call TestRxrv 'Index var(cars.) as(cari.) all'
+ say 'List car* after ALL'
+ Call RunRxrv 'list var(car*)'
+ tn=(((#cars*2)+1)*2)+1
+ if rxv_outn<>tn then zz=Quit('Count is' rxv_outn', not' tn,6)
+
+ Call MkTextw
+ Call TestRxrv 'Index var(wh*) as(name.)'
+ Call RunRxrv 'list var(wh*)'
+ n= rxv_namen
+ Call RunRxrv 'list var(name.)'
+ if rxv_namen<>n+1 then,
+   zz=Quit('Number of NAME.*' rxv_namen', not' n+1,6)
+ if name.4<>'WHO' then zz=Quit('NAME.4='name.4 'ne WHO',6)
+ say 'Index ok'
+ say ''
+ return 0
+
+TestSort: Procedure    /* test SORT  */
+ say 'Testing SORT'
+ Call MkTextr
+ /* external sort */
+ Call RunRxrv 'list var(textr.#) hdr(Stem TEXTR. before sort) nw(10)'
+ Call TestRxrv 'sort var(textr.#) fields(1,8,ch,a,10,2,ch,a)'
+ if rxv_sort<>'E' then zz=Quit('Sort is' rxv_sort', not E',6)
+ Call RunRxrv 'list var(textr.#) hdr(Stem TEXTR. after sort) nw(10)'
+ if word(textr.12,1)<>'Lima' then,
+   zz=Quit('Word 1 of text.12 should be "Lima"' text.12,6)
+ say '1 ok'
+ say ''
+
+ Call MkTextr
+ Call TestRxrv 'sort var(textr.) as(data.)'
+ if rxv_sort<>'I' then zz=Quit('Sort is' rxv_sort', not I',6)
+ Call RunRxrv 'list var(data.#) hdr(Stem DATA. after sort) nw(10)'
+ if data.0<>textr.0 then,
+   zz=Quit('DATA.0' 0+data.0 ', not eq TEXT.0' 0+text.0,6)
+ if subword(data.6,1,2)<>'Foxtrot  universe' then,
+   zz=Quit('DATA.6='data.6 'ne Foxtrot  universe...',6)
+ drop data.
+ say '2 ok'
+ say ''
+
+ Call MkTextr
+ Call TestRxrv 'sort var(textr.) ondata(*Doctor*) as(zort.)'
+ Call RunRxrv 'list var(zort.#) hdr(Stem ZORT. after sort) nw(10)'
+ if zort.0<>3 then zz=Quit('Sortout num is' zort.0', ne 3',6)
+ say '3 ok'
+ say ''
+
+ say 'Testing long sort records'
+ Call MkTextr
+ tl=''
+ long.=''
+ nl='3 9 15'
+ do i=1 to 3
+   n=word(nl,i)
+   l=40000%length(textr.n)
+   textr.n=copies(textr.n' ',l+2)
+   c =  left(textr.n,1)
+   tl=tl c
+   long.c=textr.n
+ end
+ say 'List var ids:' strip(tl)
+ Call RunRxrv 'list var(textr.#) hdr(Long variables before sort) nw(12)',
+              'sh(len)'
+ rcc=TestRxrv('sort var(textr.)')
+ Call RunRxrv 'list var(textr.#) hdr(Long variables after sort) nw(12)',
+              'sh(len)'
+ do i=1 to textr.0
+   c=left(textr.i,1)
+   if wordpos(c,tl)=0 then iterate
+   if textr.i<>long.c then zz=Quit('Long var' i 'c='c 'error',6)
+ end
+ drop rexxvar$. long.
+ say '4 ok'
+ say ''
+
+ say 'Test NODUP'
+ Call MkTextr
+ n=textr.0
+ tn=textr.0
+ zz=value('textr.'n+1,textr.1)
+ zz=value('textr.'n+2,textr.2)
+ zz=value('textr.'n+3,textr.3)
+ textr.0 = 3+textr.0
+ n=textr.0
+ Call RunRxrv  'list var(textr.#) hdr(Stem TEXTR. before sort n='n')'
+ Call TestRxrv 'sort var(textr.)  nodup '
+ Call RunRxrv  'list var(textr.#) hdr(Stem TEXTR. after sort n='0+textr.0')'
+ if textr.0<>tn then zz=Quit('TEXTR.0' 0+textr.0 ' is not' tn,6)
+ say '5 ok'
+ say ''
+
+ say 'Test sort descending (reversed)'
+ Call MkTextR
+ tt='Zulu'
+ Call TestRxrv 'sort var(textr.#) d'
+ Call RunRxrv 'list var(textr.#) hdr(Stem TEXTR. after sort) nw(10)'
+ if word(textr.1,1)<>tt then zz=Quit('Error, textr.1 is' textr.1', not' tt,6)
+ say '6 ok '; say ''
+
+ say '7. Stack to stem'
+ Call MkTextq
+ say #textq 'records in stack'
+ Call TestRxrv 'sort stack as(data.) '
+ if rxv_sort<>'I' then zz=Quit('Sort is' rxv_sort', not I',6)
+ if  data.0<>#textq then zz=Quit('data.0 is' data.0', not' #textq,6)
+ Call RunRxrv 'list var(data.#) hdr(Stem DATA. after sort) nw(12)'
+ tt='Foxtrot  universe'
+ if subword(data.6,1,2)<>tt then zz=Quit('DATA.6='data.6 'ne' tt,6)
+ drop data.
+ say '7. ok'; say ''
+
+ say '8. Stem to stack'
+ Call MkTextr
+ Call TestRxrv 'sort var(textr.) tostack'
+ tn=queued()
+ if tn<>#textr then zz=Quit('Sortout num is' tn', ne' #textr,6)
+ say 'Stack:'
+ do queued()
+   parse pull r
+   say r
+ end
+ say '8. ok'; say ''
+
+ say '9. Stack to stack'
+ Call MkTextr
+ say 'record 1-4 of' #textr
+ do n=1 to textr.0  /* make not sorted */
+   queue textr.n
+   if n<5 then say textr.n
+ end
+ drop textr.
+ say '# records before sort:' #textr
+ Call TestRxrv 'sort stack tostack '
+ tn=queued()
+ say 'List stack after sort,' tn 'records in stack...'
+ do queued()
+   parse pull r
+   say r
+ end
+ if tn<>#textq then zz=Quit('Sortout num is' tn', not' #textq,6)
+ tt='Zulu'
+ if word(r,1)<>tt then zz=Quit('Error, last rec is' r', not' tt '...',6)
+ say '9. ok'; say ''
+
+ say 'SORT ok';say ''
+ return 0
+
+TestStem2Tbl: Procedure   /* test copy table to stem */
+ say 'Stem2Tbl stem to table'
+ cc=XIsp("tbend TestTbl1") /* just in case */
+ cc=XIsp("tbcreate TestTbl1 names(text)")
+ if rc<>0 then call quit 'TbCreate TestTbl1 failed rc' rc,8
+ Call MkTextn
+ #textn=0+textn.0
+ say 'Stem size='#textn
+ Call rexxvars 'list stem(textn.) nw(12) lw(120)'
+ Call TestRxrv 'stem2tbl stem(textn.) table(TestTbl1) tblvar(text)'
+ address ispexec
+ "tbquery testTbl1 rownum(rows)"
+ say 'Rownum='rows+0
+ if rows<>#textn then call quit 'Rownum' rows+0 'is ne expected' #textn,8
+ "tbtop testTbl1"
+ do rows
+   "tbskip testTbl1"
+   say 'table text='text
+ end
+ drop textn.
+ cc=XIsp("tbend TestTbl1") /* just in case */
+ say 'Stem2Tbl ok'
+ say ''
+ return 0
+
+TestStack2Tbl: Procedure   /* test copy stack to table */
+ say 'Stack2tbl copy stack to table'
+ Call MkTextQ
+ qeud#=queued()
+ cc=XIsp("tbend testtbl2") /* just in case */
+ cc=XIsp("tbcreate testtbl2 names(text)")
+ Call TestRxrv 'stem2tbl stack table(testtbl2) tblvar(text)'
+ qn=queued()
+ address tso "delstack"
+ if qn>0 then call quit 'still' qn 'records in stack',8
+ address ispexec "tbquery testtbl2 rownum(rows)"
+ row#=rows+0
+ say 'Rows generated:' row#
+ if rows<>qeud# then zz=Quit('Rownum is' row#', not' qeud#,6)
+ address ispexec "tbbottom testtbl2"
+ t=word(text,1)
+ if t<>'Zulu' then zz=Quit('Word 1 of last row is "'t'", not "Zulu"',6)
+ cc=XIsp("tbend testtbl2")
+ say 'Stack2tbl ok'
+ say ''
+ return 0
+
+TestTbl2Stem: Procedure   /* test copy table to stem */
+ say 'Tbl2stem table to stem'
+ /* prep table */
+ cc=XIsp("tbend testtbl3") /* just in case */
+ cc=XIsp("tbcreate testtbl3 names(text)")
+ if rc<>0 then call quit 'TbCreate testtbl3 failed rc' rc,8
+ Call MkTextn
+ stem#=0+textn.0
+ Call RexxVars 'stem2tbl stem(textn.) table(testtbl3) tblvar(text)'
+ cc=Xisp("tbquery testtbl3 rownum(rows)" )
+ if cc<>0 then call quit 'TbQuery testtbl3 failed rc' cc,8
+ drop textn.
+ rows=rows+0
+ say 'table rows='rows
+ if rows=0 then call quit 'no rows loaded',8
+ /* prep table done */
+ drop newstem.
+ Call TestRxrv 'tbl2stem table(testtbl3) tblvar(text) stem(newstem.)'
+ call RexxVars 'list stem(newstem.) nw(12) lw(120)'
+ if newstem.0<>rows then,
+   call Quit 'newstem.0' 0+newstem.0 'ne rows' rows,8
+ say ''
+ drop newstem.
+ cc=XIsp("tbend testtbl3")
+ say 'Tbl2Stem ok'
+ say ''
+ return 0
+
+TestTbl2Stack: Procedure   /* test copy table to stack */
+ say 'Tbl2stack table to stack'
+ /* prep table */
+ cc=XIsp("tbend testtbl4") /* just in case */
+ cc=XIsp("tbcreate testtbl4 names(text)")
+ if rc<>0 then call quit 'TbCreate testtbl4 failed rc' rc,8
+ Call MkTextn
+ stem#=0+textn.0
+ Call RexxVars 'stem2tbl stem(textn.) table(testtbl4) tblvar(text)'
+ cc=Xisp("tbquery testtbl4 rownum(rows)" )
+ if cc<>0 then call quit 'TbQuery testtbl4 failed rc' cc,8
+ drop textn.
+ rows=rows+0
+ say 'table rows='rows
+ if rows=0 then call quit 'no rows loaded',8
+ /* prep table done */
+ Call TestRxrv 'tbl2stem table(testtbl4) tblvar(text) tostack'
+ if queued()<>rows then call Quit 'queued #' queued() 'ne rows' rows,8
+ say 'List stack'
+ do queued()
+   parse pull r
+   say r
+ end
+ say ''
+ cc=XIsp("tbend testtbl4")
+ say 'Tbl2Stem ok'
+ say ''
+ return 0
+
+TestSortDFSP: Procedure
+ say 'SORT using DFSPARM to reorg record'
+ Call MkTextn
+ #textn=0+textn.0
+ /* make randomized list with nnnn at front , sample
+    ----+----1----+----2----+----3----+----4----+----5--
+    0001 Alpha    Doctor Who is a British science-fiction */
+ drop textr. randc.
+ parse value 0 with randc. textr.
+ do n=1 to #textn
+   do forever
+     m=random(1,#textn)
+     if randc.m then iterate
+     randc.m=1
+     leave
+   end
+   textr.m=right(n,4,0) textn.n
+ end
+ textr.0=#textn
+ drop textn.
+ /*say 'list before'
+ cc=RexxVars('list stem(textr.) nw(10) lw(120)')*/
+ /* make DFSPARM, run sort */
+ cc=bpxwdyn('alloc new delete dd(DFSPARM)',
+            'lrecl(80) recfm(f,b) blksize(0)',
+            'tracks space(1,1) unit(sysda)')
+ if cc<>0 then call quit "alloc DFSPARM failed" cc
+ r.1=' OUTREC FIELDS=(1,8,14,9,9,5,23)'
+ "execio 1 diskw dfsparm (stem r. finis)"
+ if rc<>0 then zz=BpxWdyn('free dd(DFSPARM)'),
+             + quit("write DFSPARM failed" rc)
+ cc=RexxVars('sort stem(textr.) fields(6,8,ch,a)')
+ call BpxWdyn 'free dd(DFSPARM)'
+ if cc<>0 then call quit "sort failed" cc
+ say 'Reordered records after sort'
+ cc=RexxVars('list stem(textr.) nw(10) lw(120)')
+ call BpxWdyn 'free dd(DFSPARM)'
+ if space(subword(textr.26,1,3))<>'Zulu 0026 21st' then,
+   call quit 'sort failed, record 26 not "Zulu     0026 21st.."',8
+ drop textr. textc.
+ say ''
+ return 0
+
+TestEdit: Procedure   /* test EDIT  */
+ say 'Edit numbered stem...'
+ call MkTextn 15
+ zz=RexxVars('list var(text*) hdr(text* before test)')
+ Call TestRxrv 'edit var(textn.#) macro(rxrvtem1)'
+ "delstack"
+ zz=RexxVars('list var(text*) hdr(text* after test)')
+ if textn.4<>'Foxtrot   *modified*',
+   zz=Quit('Error, textn.4 is' textn.4', not Foxtrot   *modified*',6)
+ say ''
+ drop textn.
+
+ say 'Edit named vars..'
+ Call MkTextq
+ #textt=queued()
+ do 10
+   parse pull i t
+   i=translate(strip(i))
+   zz=value('T_'i,strip(t))
+ end
+ "delstack"
+ zz=RexxVars('list var(t_*) hdr(t_* before test)')
+ Call TestRxrv 'edit var(t_*) macro(rxrvtem2)'
+ zz=RexxVars('list var(t_*) hdr(t_* after test)')
+ tt='1963 when'
+ if subword(T_India,1,2)<>tt then,
+   zz=Quit('Error, T_India is' t_india', not' tt '..',6)
+ if t_bravo<>'T_BRAVO' then,
+   zz=Quit('Error, T_Bravo is' t_bravo', not T_BRAVO ..',6)
+ say ''
+
+ Call TestRxrv 'edit var(a_*) macro(rxrvtem2) ',4
+ say 'Edit ok' ; say ''
+ return 0
+
+TestErrors: Procedure    /* test some error conditions */
+ say 'Testing errors'
+ xrc=8
+ cc=TestRxrv('abc var(si.#)',xrc)
+ if cc<>xrc then zz=Quit('Bad function did not end rc' xrc', but' cc,6)
+ xrs='Invalid function'
+ if rexxvars_rsn<>xrs then zz=Quit('Bad reason' rexxvars_rsn 'ne' xrs,6)
+ cc=TestRxrv('index',8)
+ if cc<>xrc then zz=Quit('Missing varname did not end rc' xrc', but' cc,6)
+ xrs='Required parameter missing'
+ if rexxvars_rsn<>xrs then zz=Quit('Bad reason' rexxvars_rsn 'ne' xrs,6)
+ say ''
+ return 0
+
+MkTextq:
+ "delstack"
+ queue  'Alpha    Doctor Who is a British science-fiction             '
+ queue  'Bravo    television programme produced by the BBC from 1963  '
+ queue  'Charlie  to the present day. The programme depicts the       '
+ queue  'Delta    adventures of the Doctor, a Time Lord a             '
+ queue  'Echo     time-travelling humanoid alien. He explores the     '
+ queue  'Foxtrot  universe in his TARDIS, a sentient time-travelling  '
+ queue  'Golf     space ship. Its exterior appears as a blue British  '
+ queue  'Hotel    police box, which was a common sight in Britain in  '
+ queue  'India    1963 when the series first aired. Along with a      '
+ queue  'Juliet   succession of companions, the Doctor combats a      '
+ queue  'Kilo     variety of foes while working to save               '
+ queue  'Lima     civilisations and help people in need. The show is  '
+ queue  'Mike     a significant part of British popular culture, and  '
+ queue  'November elsewhere it has become a cult television           '
+ queue  'Oscar    favourite.                                          '
+ queue  'Papa      The show has influenced generations of British     '
+ queue  'Quebec   television professionals, many of whom grew up      '
+ queue  'Romeo    watching the series. The programme originally ran   '
+ queue  'Sierra   from 1963 to 1989. After an unsuccessful attempt    '
+ queue  'Tango    to revive regular production in 1996 with a         '
+ queue  'Uniform  backdoor pilot in the form of a television film,    '
+ queue  'Victor   the programme was relaunched in 2005 by Russell T.  '
+ queue  'Whisky   Davies who was showrunner and head writer for the   '
+ queue  'Xray     first five years of its revival, produced in-house  '
+ queue  'Yankee   by BBC Wales in Cardiff. The first series of the    '
+ queue  'Zulu     21st century, featuring Christopher Eccleston ....  '
+ #textq=queued()
+ Return 0
+
+MkTextn: procedure expose textn. #textn
+ drop textn.
+ Call MkTextq
+ qn=queued()
+ do n=1 to qn
+   parse pull t
+   textn.n=strip(t,'t')
+ end
+ textn.0=qn
+ #textn=qn+1
+ return 0
+
+MkTextt: procedure expose textt. #textt
+ drop textt.
+ Call MkTextq
+ #textt=queued()
+ do queued()
+   parse pull r
+   n=translate(word(r,1))
+   textt.n=strip(substr(r,10),'t')
+ end
+ return 0
+
+MkTextr: procedure expose textr. #textq #textr /* make randomized stem */
+ drop textr. c. #textr
+ Call MkTextq
+ parse value 0 with c. textr.
+ do #textq
+   parse pull r
+   do until \c.m
+     m=random(1,#textq)
+   end
+   c.m=1
+   textr.m=r
+ end
+ textr.0=#textq
+ #textr =#textq
+ drop c.
+ return 0
+
+MkTextrLong:
+ Call MkTextr
+ mtln=1+textr.0
+ textr.mtln=left('First long var ',32740,'x')'+'left('y',60000-32741,'r')
+ lv1=textr.mtln
+ mtln=mtln+1
+ textr.mtln=left('Second long var ',32740,'x')'+'left('y',120000-32741,'r')
+ textr.0=mtln
+ #textr =mtln
+ return 0
+
+MkTextw:
+ parse value 'Kilroy was here yesterday' with who what where when
+ #textw=4
+ return 0
+
+MkCars:
+ drop cars. ford audi wv bmw mazda
+ cars.ford    =  'Old USA car maker'
+ cars.audi    =  'German producer of very nice cars'
+ cars.wv      =  'German car for the common people'
+ cars.mazda   =  'We had a couple of those japanese cars'
+ cars.bmw     =  'Another nice german car'
+ cars.hyundai =  'South Korean make, do the Ionic 5 electric vehicle'
+ #cars=6
+ return 0
+
+TestTrace: Procedure
+ say 'Test tracing..'
+ parse value 'Kilroy was here' with who what where
+ Call RunRxrv "copy var(wh*) as(+'q.z'*) trace"
+ say '->rc='cc 'rs='space(rexxvars_rsn) 'stat='rexxvars_stat
+ say ''
+ return 0
+
+XIsp:
+ signal off error
+ address ispexec arg(1)
+ return rc

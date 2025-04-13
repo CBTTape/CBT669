@@ -1,0 +1,94 @@
+REXXGBLV saamples
+
+
+Pass data to a program not called directly from the current one, and
+also want to get data back from that program. This is probably the
+most common use, it is what REXXGBLV was originally written to do. It
+address the lack of global variables in REXX.
+
+Program TOP contains:
+
+ Parm1 = 'Kilroy'
+ Zz=RexxGblv('save var(parm1)')
+ Call Middle
+ Zz=RexxGblv('load var(resp1)')
+ Say 'Response to Kilroy was' resp1
+
+Program MIDDLE contains:
+ Call Bottom
+ Exit 0
+
+Program BOTTOM contains:
+ Zz=RexxGblv('load var(parm1)')
+ If parm1 = 'Kilroy' then resp1 = 'was here'
+ Zz=RexxGblv('save var(resp1)')
+ Exit 0
+
+
+Same sample really, but with a specific pool so not to conflict with
+other programs. The pool is dropped when retrieved, so it doesn't
+consume space afterwards.
+
+Program TOP contains:
+
+ Parm1 = 'Kilroy'
+ Zz=RexxGblv('save var(parm1) pool(kilroy)')
+ Call Middle
+ Zz=RexxGblv('loaddrop var(resp1) pool(kilroy)')
+ Say 'Response to Kilroy was' resp1
+
+Program MIDDLE contains:
+ Call Bottom
+ Exit 0
+
+Program BOTTOM contains:
+ cc=RexxGblv('load var(parm1) pool(kilroy)')
+ If parm1 = 'Kilroy' then resp1 = 'was here'
+ cc=RexxGblv('save var(resp1) pool(kilroy)')
+ Exit 0
+
+
+List REXX variables. This is very usefull for debugging, when you
+don't really know what variables might have been set by a program.
+
+ cc=RexxGblv('rlist var(resp*)')   /* everything resp* */
+ cc=RexxGblv('rlist')              /* everything       */
+
+
+Make an index over a stem with non-numeric suffixes. If you don't
+know in advance what will be generated, it is impossible for a program
+to know the variable names. With the STEMINDEX function, you will.
+
+  Car.mazda='japanese car make'
+  Car.ford ='USA car make'
+  Car.bmw ='german car make'
+  cc=RexxGblv('StemIndex stem(car.)')
+ Will generate
+  CAR.0 = 00000003
+  CAR.1 = 'BMW'
+  CAR.2 = 'FORD'
+  CAR.3 = 'MAZDA'
+
+Utilizing the AS(newname) operand to process a stem in an external program.
+This way any stem can be sorted even though the procedure sort 's.' .
+
+  ...  make stem 'data.' .....
+  zz=RexxGblv('dropsave var(data.) pool(sortw)')  /* save stem */
+  Call BubleSort 'data. sortw'  /* call external with stem and poolname */
+  zz=RexxGblv('loaddrop pool(sortw)')             /* load sorted stem */
+  ... rest of main ...
+ BubleSort: Procedure
+  arg varp pool .
+  zz=RexxGblv('load var('varp') as(s.) pool('pool')')
+  .... sort stem 's.' ...
+  Return RexxGblv('save var(s.) as('varp') pool('pool')')
+
+Using the AS(newname) operand with a mask..
+ Copy variables adding prefix.
+  cc=RexxGblv("Copy var(data.) as(+'T072'*)")
+ Copy variables adding 2nd qualifier
+  cc=RexxGblv("Copy var(data.) as(*'.'+'.TEST'*)")
+ Copy variables with selectable rename.
+  cc=RexxGblv('Copy var(data.) as(?-LI?+'ABCD.'*?*?)")
+ Save variables with added prefix.
+  cc=RexxGblv("Save var(data.) as(+'T072'*) pool(t072)")

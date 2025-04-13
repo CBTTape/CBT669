@@ -1,0 +1,193 @@
+*-
+* Macros and copybooks for REXXVARS.
+*-
+
+         Macro
+         ClrLong
+.* clear up to 16M storage area
+.* operand 1 -> target
+.* operand 2 =  target size
+.* operand 3 =  pad chr, optional, defalt is x'00'
+         lclc  &pad
+         setreg r0,&syslist(1)         address
+         setreg r1,&syslist(2),l'&syslist(1)
+         sr    r14,r14                 null source
+         sr    r15,r15                 null source length
+         aif   (n'&syslist lt 3).padn
+&pad     setc  '&syslist(3)'
+         la    r15,&pad
+         sll   r15,24
+.padn    anop
+         mvcl  r0,r14                  clear
+         Mend
+*- Reason
+         Macro
+         Reason &t,&c,&p3
+         lcla  &l
+         aif   ('&t '(1,1) eq '''').lit
+         mvc   reason(l'&t),&t
+         la    r1,l'&t
+         st    r1,reasonl
+         ago   .rc
+.lit     anop
+&l       seta  k'&t-2
+         mvc   reason(&l),=c&t
+         mvc   reasonl,=a(&l)
+.rc      anop
+         aif   (k'&c eq 0).x
+         setrc &c
+         aif   ('&p3' ne 'T' and '&p3' ne 't').x
+         mvc   logr,reason
+         trclog ,
+.x       Mend
+
+*------------------Trace block start/end-----------------------------*
+         Macro
+.* TrcBlk / TrcBlkEnd is used around larger trace blocks. This
+.* cuts down on the number of instructions executed.
+        zTrcBlk
+         gblc  &trcblka
+.* condsect begin
+         lclc  &c
+         Condsect ,trcblkend
+         gblc  &$condsect
+&c       setc  Upper('&$condsect ')
+         aif   ('&c '(1,1) eq 'H').x
+.* condsect end
+         aif   ('&trcblka' eq '').go
+         mnote 8,'***trcblka ne null'
+         mexit
+.go      anop
+&trcblka setc  'TB&sysndx.END'
+         cli   trace,c'Y'
+         jne   &trcblka
+.x       Mend
+
+         Macro
+        zTrcBlkEnd
+         gblc  &trcblka
+&trcblka ds    0h
+&trcblka setc  ''
+         Mend
+
+*- Trclog
+         Macro
+&ml      TrcLog &t,&k
+         lclc  &l,&c
+&l       setc  'TL&sysndx'
+         gblc  &trcblka
+.*- global section suppression
+         gblc  &$condsect
+&c       setc  Upper('&$condsect ')
+         aif   ('&c '(1,1) eq 'H').x
+.*-
+.* don't generate test for trace if already within a TRCBLK
+         aif   ('&trcblka' ne '').go
+&ml      ds    0h
+         cli   trace,c'Y'
+         jne   &l.x
+.go      mvlit logr,&t
+         aif   (k'&k eq 0).k0
+         RxSay logr,&k
+         ago   .b
+.k0      RxSay logr
+.b       anop
+         clear logr
+&l.x     equ   *
+.x       Mend
+
+*-
+* sort exit macros
+*-
+         Macro
+         SortXEnt &id,&uwo=
+         gblc  &@modnm
+         lclc  &s
+SortX&id Amode 31
+SortX&id Rmode any
+SortX&id Csect
+         push  using
+         Using &@modnm,r12
+         Using SortX&id,r11
+         Using LclStor,r10
+         save  (14,12)
+         lr    r9,r1                    -> exit parameter list
+&s       setc  Upper('&id')
+         aif   ('&s' eq 'E15').e15i
+         aif   ('&s' eq 'E35').e35i
+         mnote 8,'*** Bad id'
+         mexit
+.e15i    l     r10,4(,r9)               -> user data
+         ago   .ein
+.e35i    l     r10,8(,r9)               -> user data
+.ein     anop
+         laey  r14,exitsa
+         st    r14,8(,r13)
+         st    r13,4(,r14)
+         lr    r13,r14
+         lr    r11,r15
+         l     r12,=v(&@modnm)
+         Mend
+*-
+         Macro
+         SortXRtn &rc
+         l     r13,4(,r13)
+         l     r14,12(,r13)
+         la    r15,&rc
+         return (2,12)
+         Mend
+*-
+* exit entry/return macros
+*-
+         Macro
+&mname  zIspxEnt &uwo=,&sa=
+         gblc  &@modnm
+         lclc  &s
+         push  using
+&mname   Amode 31
+&mname   Rmode any
+&mname   Csect
+         Using &mname,r11
+         save  (14,12)
+         lr    r9,r1                    -> exit parameter list
+         aif   (k'&uwo eq 0).uwon
+         Using LclStor,r10
+         l     r10,&uwo.(,r9)           user data address
+         l     r10,0(,r10)              -> user data
+.uwon    anop
+         la    r14,&sa
+         st    r14,8(,r13)
+         st    r13,4(,r14)
+         lr    r13,r14
+         lr    r11,r15
+         Using &@modnm,r12
+         l     r12,=v(&@modnm)
+         Mend
+*-
+         Macro
+        zIspxRtn &rc
+         l     r13,4(,r13)
+         l     r14,12(,r13)
+         SetReg r15,&rc
+         return (2,12)
+         Mend
+*-
+         Macro
+         GetStor &sz=,&dp=
+         SetReg r0,&sz
+         SETREG r1,&dp
+         #subr call,Getstor
+.* r0=adjusted size, r1->address
+.x       Mend
+*-
+         Macro
+         RelStor &dp=
+         SETREG r1,&dp
+         #subr call,Relstor
+         Mend
+*-
+         Macro
+         SetRc &rc
+         SETREG r0,&rc
+         st    r0,rc
+         Mend

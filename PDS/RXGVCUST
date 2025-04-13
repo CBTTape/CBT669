@@ -1,0 +1,7 @@
+*-
+* Local customization - overrides
+*
+* If used, then the recommendation is to store the member in a separate
+* library and add that library at the front of the assembly SYSLIB
+* concatenation.
+*-

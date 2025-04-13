@@ -1,0 +1,58 @@
+RXPIPE - Emulate the PIPE command using REXX facilities
+
+
+RXPIPE is written by
+
+  Willy Jensen
+  mail: willy@harders-jensen.com
+  web : http://harders-jensen.com
+
+
+Disclaimer
+
+ The product is totally freeware and can be distributed and modified
+ as you like, though the author would like to know of enhancements
+ made, so that they might be incooporated into the base product.
+
+ The author accepts no responsibility for any damage caused by the
+ product not behaving as expected or as documented. It is after all
+ free.
+
+ Questions and comments should be sent to the email address,
+ enhancement requests are especially welcome.
+
+ If you experience problems then check the website for an updated
+ version. (future, not there yet).
+
+
+Getting started
+
+ Start by reading the RXPIINTR (Tutorial / introduction) member, then
+ continue with the the RXPIDOC member, which is the product and
+ command reference.
+
+ See the RXPIDEMO member for a couple of examples. They are packaged
+ to run in batch job member RXPIDEM$, but will run equally fine from
+ ISPF 6 or TSO READY, though you must set the DEMOLIB variable at the
+ top before you do.
+
+
+Description of members:
+
+ RXPI@INT  Tutorial / introduction.
+ RXPI@MAN  Reference manual.
+ RXPI@USG  Users guide.
+ RXPICATS  Catalog Search subroutine
+ RXPIDEM$  Demo job
+ RXPIDEMO  Demo script
+ RXPIDSOR  DfSort subroutine
+ RXPIHIST  Product history.
+ RXPIHSOR  Heapsort subroutine
+ RXPIKPAR  Parser used by external commands
+ RXPIMBRL  Non-ISPF pds member list
+ RXPIPE    Main pgm
+ RXPIPEAI  Main pgm All Included - includes all standard externals.
+ RXPIPEX   Driver
+ RXPIRDME  Read me (thisaone)
+ RXPISDSF  SDSF info subroutine
+ RXPIVSAM  VSAM access subroutine

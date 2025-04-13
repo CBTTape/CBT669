@@ -1,0 +1,7 @@
+ /*                                                      REXX
+  RXPIPE initialization externalized settings.  (future .. perhaps)
+  You can also add your clear-screen command in here.
+ */
+ ?bg = left(sysvar('sysenv'),1)<>'F'     /* Fore/Back */
+ Exit 'rc=0;'                            /* must be INTERPRETable */
+ if \?bg then "ISPCLEAR"                 /* sample */

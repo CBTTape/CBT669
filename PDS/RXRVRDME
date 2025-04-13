@@ -1,0 +1,11 @@
+Description of members:
+
+ REXXVARS  Product, edit and run this member.
+ RXRVDOC   Documentation.
+ RXRVHIST  Product history.
+ RXRVIVPx  IVPs
+ RXRVMACS  Local macros.
+ SYSMACS   ASM copy book containing combined non-IBM macros.
+ REXXMACS  ASM copy book containing my macros for interfacing with REXX.
+ WSAMMACS  ASM copy book containing my structured assembler macro set.
+           The macros are equivalent but not identical to IBM's macros.

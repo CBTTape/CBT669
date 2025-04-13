@@ -1,0 +1,102 @@
+/* rexx */
+ address ispexec "control errors return"
+
+ "STEPLIB ALLOCATE DATASETS('CBT669.LINKLIB') SHR REUSE NOMSGS"
+ say 'Version:' RexxVars('version')
+signal test3
+test1:
+ say 'Test standard stem...'
+ call mkdata1
+ zz=RexxVars('list var(text.) hdr(before test1)')
+ trace r
+ cc=RexxVars('view var(text.)')
+ trace off
+ say 'rc='cc 'rsn='rexxvars_rsn 'stat='rexxvars_stat
+ "delstack"
+ if cc<>0 then exit
+ zz=RexxVars('list var(text.) hdr(after test1)')
+ say ''
+
+Test2:
+ say 'Test numbered stem...'
+ call mkdata2
+ zz=RexxVars('list var(text.) hdr(before test2)')
+ trace r
+ cc=RexxVars('view var(text.#)')
+ trace off
+ say 'rc='cc 'rsn='rexxvars_rsn 'stat='rexxvars_stat
+ "delstack"
+ if cc<>0 then exit
+ zz=RexxVars('list var(text.) hdr(after test2)')
+
+Test3:
+ Call Test3x
+Test4:
+ Call Test4x
+
+ exit 0
+
+MkData1:
+ drop text.
+ "delstack"
+ queue  'Foxtrot  universe in his TARDIS, a sentient time-travelling  '
+ queue  'Uniform  backdoor pilot in the form of a television film,    '
+ queue  'Romeo    watching the series. The programme originally ran   '
+ queue  'Yankee   by BBC Wales in Cardiff. The first series of the    '
+ queue  'November elsewhere it has become a cult television           '
+ queue  'Tango    to revive regular production in 1996 with a         '
+ queue  'Oscar    favourite.                                          '
+ queue  'Delta    adventures of the Doctor, a Time Lord a             '
+ queue  'Alpha    Doctor Who is a British science-fiction             '
+trace off
+ do queued()
+   parse pull t
+   n=translate(word(t,1))
+   zz=Value('TEXT.'n,strip(t,'t'))
+ end
+ drop n t
+ return 0
+
+MkData2:
+ drop text.
+ "delstack"
+ queue  'Doctor Who is a British science-fiction television programme'
+ queue  'produced by the BBC from 1963 to the present day. The programme'
+ queue  'depicts the adventures of the Doctor, a Time Lord a             '
+ queue  'time-travelling humanoid alien. He explores the universe in his'
+ queue  'TARDIS, a sentient time-travelling space ship. Its exterior    '
+ queue  'appears as a blue British police box, which was a common sight in'
+ queue  'Britain in 1963 when the series first aired. Along with a     '
+ queue  'succession of companions, the Doctor combats a variety of foes'
+ queue  'while working to save civilisations and help people in need.  '
+ queue  ' The show is a significant part of British popular culture,and '
+ queue  'elsewhere it has become a cult television favourite.          '
+ queue  ' The show has influenced generations of British television    '
+ queue  'professionals, many of whom grew up watching the series.'
+trace off
+ text.0=queued()
+ qn=queued()
+ do n=1 to qn
+   parse pull t
+   text.n=strip(t,'t')
+ end
+ drop n t
+ return 0
+
+MkTextw:
+ parse value 'Kilroy was here yesterday' with who what where when
+ #textw=4
+ return 0
+
+Test3x: procedure
+ say 'All data (default)'
+ zz= 'Version:' RexxVars('version')
+ Call MkTextw
+ zz=RexxVars('view var(*) hdr(all)')
+ return 0
+Test4x: procedure
+ say 'All data incl self'
+ zz= 'Version:' RexxVars('version')
+ Call MkTextw
+ zz=RexxVars('view var(*) hdr(all incl self) sh(self)')
+ return 0

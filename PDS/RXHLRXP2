@@ -1,0 +1,19 @@
+ /*                            rex
+  REXX pgm called from hi-level pgm
+ */
+
+ parse source s
+ say 'REXX pgm called from hi-level pgm'
+ say 'Source          :' word(s,1)
+ say '  Mode          :' word(s,2)
+ say '  Pgmname folded:' word(s,3)
+ say '  DDname        :' word(s,4)
+ say '  Libdsname     :' word(s,5)
+ say '  Pgmname org   :' word(s,6)
+ say '  Cmdenv        :' word(s,7)
+ say '  AS type       :' word(s,8)
+ say '  User token    :' word(s,9)
+ say 'Arg # :' arg()
+ say 'Arg 1 :' arg(1)
+ say 'Complete..'
+ exit 'All ok'

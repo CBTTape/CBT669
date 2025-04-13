@@ -1,0 +1,59 @@
+ /*                                                                rexx
+  Test/demo the REXX-Hilvl interface.
+  This demo run a C program.
+ */
+
+ arg lang .
+
+ shortvar ='Howdy'
+ testvar  ='Kilroy was here yesterday'
+ a_very_long_var = Copies('----+----|',40)  /* size=400 */
+ testvar2 ='Winter is coming'
+ room101  ='A very bad place to find yourself'
+ livingroom ='Should be ok to sit in'
+ queue 'This is 1st stack entry'
+ queue a_very_long_var                      /* stack a very long text */
+ queue 'Last before CALL'
+ say 'Stacksize before test:' queued()
+
+ say ''
+ say 'Call pgm using language' lang
+
+ signal on error   name PgmError
+ signal on syntax  name PgmSyntax
+
+ Interpret "call RXHLD"lang
+ say 'Call done rc='rc 'result='result 'retval='retval
+
+ say 'Newvar after call:' newvar
+ say ' '
+ say queued() 'queued after test..'
+ do queued()
+   parse pull r
+   if length(r)>100 then say left(r,99)'+'
+   else say r
+ end
+ drop r
+ exit 0
+
+PgmError:
+ signal off error
+ say '*Error' rc 'in line' sigl':' Errortext(rc)
+ say Sourceline(sigl)
+ exit 12
+
+PgmSyntax:
+ signal off syntax
+ say '*Syntax' rc 'in line' sigl':' Errortext(rc)
+ say Sourceline(sigl)
+ exit 12
+
+PgmNoVal:
+ say '*Novalue raised for line' sigl '-'
+ say strip(sourceline(sigl),'t')
+ signal off novalue
+ exit 12
+
+ say ' '
+ say 'All variables after test..'
+ cc=RexxVars('list var(*)') /* not available everwhere */

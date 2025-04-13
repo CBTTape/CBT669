@@ -1,0 +1,544 @@
+Panel using dynamic area to build scrollable or non-scrollable display
+
+This document contains the following sections:
+
+ 1. The documentation
+ 2. The panel source
+ 3. A sample REXX program
+
+
+1. The documentation
+
+Highlights
+
+ -  Show the screen buffer.
+ -  Update variables associated with input field areas.
+ -  Calculate new top-of-panel pointer when scrolling request.
+ -  Return a list of line commands with data pointer.
+
+
+General information
+
+ The panel receives a buffer with the lines either filled out, or
+ ending in a new-line character. The panel displays the buffer in a
+ dynamic area, The buffer may contain a top fixed section, a
+ scrollable section or both. Scrolling is only handled if there is a
+ scrollable section, so the scroll control panel field (the field to
+ the right of the command input field) can be there, but may not
+ actually be used.
+
+ The top fixed section may contain named input fields, the named
+ variables are retrieved and updated by the panel. The scrollable
+ section may contain line command fields, in which case the panel
+ returns changed line command values together with the line number of
+ the underlying data structure (stem).
+
+ The panel can optionally validate the line commands entered and only
+ return to the calling program when all are valid.
+
+ If a scrolling command is entered, then the panel calculates an
+ adjusted top of display pointer. Panel attribute characters are
+ externalized, so can be used in the calling program (see sample
+ later).
+
+Users guide
+
+ The panel requires a number of data- and control variables.
+
+  Variables set by the program before displaying the panel
+
+   PDAAREA   The screeen buffer, with lines either filled to width, or
+             ending in the new-line char, see the 'Panel attribute
+             characters' section later. Note - the formats cannot be
+             mixed.
+   PDAASHAD  Optional screeen area shadow variable. It can be used to
+             highligt certain characters in the display, typically the
+             minimum allowed characters for a command. See the 'Panel
+             attribute characters' section later.
+   PDACSRP   Optional cursor position, from the start of the dynamic
+             area. The value is set to null by the panel to avoid
+             later conflicts.
+   PDAFIXN   The number of lines in the optional top fixed area. See
+             the note below. Default is 0 (none).
+   PDAHDR    A header line. It will be centered automatically.
+   PDAMAX    The number of records in the underlying data structure.
+             Required for scrolling.
+   PDAPOS    The position in the data structure. Default is 1.
+   PDASELC   A list of valid line commands if line command fields are
+             defined and validation is to be performed. If the first
+             command is specified as =command, then it becomes the
+             point and shoot line command, i.e. PDASELC='=A B C'.
+   PDASCRW   The screen width, 80 to width of logical screen. This
+             variable is required.
+   PDAVARS   List of input variable names in the fixed top area. It
+             must match the number of fields defined.
+
+   Note that the number of scrollable lines are the total number of
+   visible lines in the area minus the PDAFIXN value. If the number is
+   less than 1 then scrolling is not checked.
+
+  Variables set or updated by the panel
+
+   PDAAREA   The updated screeen buffer.
+   PDAATTR   An INTERPRETable value for defining attribute characters,
+             see the section 'Panel attribute characters' below.
+   PDADPTH   Vertical size (depth) of dynamic area adjusted for split
+             screen.
+   PDAMAXD   Maximum panel depth (copy of the ZSCRMAXD ISPF variable).
+   PDAMAXW   Maximum panel width (copy of the ZSCRMAXW ISPF variable).
+   PDAPOS    The new calculated position in the data structure after a
+             scroll command.
+   PDALCMDL  A comma separated list of line commands in the format
+             line#1,cmd1,..,line#n,cmd, A null cmd may be set if an
+             earlier set line command is cleared.
+
+ Panel attribute characters
+
+  The panel will assign the hexadecimal values x'01' to x'19' to
+  variables named PDA@xxx with alias @xxx (see the panel for details).
+  The entire set is put in the INTERPRETable variable PDAATTR, so that
+  the driving program have an easy method to set those attribute
+  variables like so:
+   Sample:
+        pdascrw=80
+        Address Ispexec "Control nondispl enter"
+        Address Ispexec "Display panel(isppda#s)"
+        Interpret pdaattr
+
+  The attribute character PDA@SV (or @SV) is for the area shadow
+  variable. It can by used for highlighting single characters in the
+  display without having normal attribute characters looking like
+  blanks before or after. The default coloe is white, it can be set by
+  the variable @SVC. Note that the shadow variable must be defined for
+  all lines.
+   Sample:
+        pdaarea =@tg'Line cmds: Browse Listcat' /* Area var */
+        pdaashad=copies(' ',12)@sv'      '@sv   /* 1st char of Browse
+                                                     and Listcat is white */
+
+
+2. Panel source - ISPPDA#S
+
+)Attr
+ /* Panel using dynamic area to build scrollable or non-scrollable display */
+ /* History                                                                */
+ /*  2024-02-09  Add shadow variables incl PDA@SW                          */
+ /*  2024-02-13  Change attributes, add user in- and output fields         */
+ /*                                                                        */
+ /* Author                                                                 */
+ /*  Willy Jensen                                                          */
+ /*  mail: willy@harders-jensen.com                                        */
+ /*  web : http://harders-jensen.com                                       */
+ +  type(text   ) color(turq ) caps(off)
+ !  type(text   ) color(yellow) caps(off)
+ _  type(input  ) color(turq ) caps(on )  hilite(uscore)
+ |  area(dynamic) extend(on) scroll(on)                   /* required      */
+ /* Specials   */
+ 01 type(dataout) color(blue  ) caps(off)                 /* line break    */
+ 02 type(datain ) color(turq  ) caps(on ) hilite(uscore)  /* sel field     */
+ 03 type(datain ) color(red   ) caps(on ) hilite(uscore)  /* sel field     */
+ /* Standard input */
+ 04 type(datain ) color(blue  ) caps(off)                 /* PDA@IB  @IB   */
+ 05 type(datain ) color(green ) caps(off)                 /* PDA@IG  @IG   */
+ 06 type(datain ) color(pink  ) caps(off)                 /* PDA@IP  @IP   */
+ 07 type(datain ) color(red   ) caps(off)                 /* PDA@IR  @IR   */
+ 08 type(datain ) color(turq  ) caps(off)                 /* PDA@IT  @IT   */
+ 09 type(datain ) color(white ) caps(off)                 /* PDA@IW  @IW   */
+ 0A type(datain ) color(yellow) caps(off)                 /* PDA@IY  @IY   */
+ /* User-defined input, color and hilite have only short form */
+ 0B type(datain ) color(&@ui1c ) caps(off) hilite(&@ui1h) /* PDA@UI1 @UI1  */
+ 0C type(datain ) color(&@ui2c ) caps(off) hilite(&@ui2h) /* PDA@UI2 @UI2  */
+ 0D type(datain ) color(&@ui3c ) caps(off) hilite(&@ui3h) /* PDA@UI2 @UI2  */
+ 0E type(datain ) color(&@ui4c ) caps(off) hilite(&@ui4h) /* PDA@UI3 @UI3  */
+ /* Standard output */
+ 0F type(dataout) color(blue  ) caps(off)                 /* PDA@OB  @OB   */
+ 10 type(dataout) color(green ) caps(off)                 /* PDA@OG  @OG   */
+ 11 type(dataout) color(pink  ) caps(off)                 /* PDA@OP  @OP   */
+ 12 type(dataout) color(red   ) caps(off)                 /* PDA@OR  @OR   */
+ 13 type(dataout) color(turq  ) caps(off)                 /* PDA@OT  @OT   */
+ 14 type(dataout) color(white ) caps(off)                 /* PDA@OW  @OW   */
+ 15 type(dataout) color(yellow) caps(off)                 /* PDA@OY  @OY   */
+ /* User-defined output, color and hilite have only short form */
+ 16 type(dataout) color(&@ut1c ) caps(off) hilite(&@ut1h) /* PDA@ut1 @ut1  */
+ 17 type(dataout) color(&@ut2c ) caps(off) hilite(&@ut2h) /* PDA@ut2 @ut2  */
+ 18 type(dataout) color(&@ut3c ) caps(off) hilite(&@ut3h) /* PDA@ut3 @ut3  */
+ 19 type(dataout) color(&@ut4c ) caps(off) hilite(&@ut4h) /* PDA@ut4 @ut4  */
+ /* Color overlay in shadow variable */
+ 1A type(char)    color(&@svc)                            /* PDA@SV  @SV   */
+)Body expand(\\) width(&pdascrw)
+%&pdahdr\ \+
+%ISPF cmd ==>_zcmd \ \+Scrl_@sca+
+!&pdaplmsg \ \+
+|PDAAREA,PDAASHAD\ \|
+)Init
+ &@errpos = &Z
+ if (&scrl EQ &Z) &scrl = 'CSR'
+ if (&@svc EQ &Z) &@svc = 'WHITE'
+ &pdadpth = lvline(pdaarea)
+ vget (zscrmaxd zscrmaxw)
+ &pdamaxw = &zscrmaxw
+ &pdamaxd = &zscrmaxd
+ &@sca = 'CSR'
+*REXX(*,@pdascri pdascrw pdahdr @pdacsra @pdacsrp pdadpth @pdavmap,
+  pdamaxd pdamaxw pdacsrp,
+  @pdaarea pdaashad pdapos pdamax pdafixn pdavars &pdavars pdaattr)
+ pdaattr=,
+   "pda@all=xrange('01'x,'1A'x);",
+   "parse var pda@all with",
+     "=1 pda@nl  +1 pda@sf  +1 pda@se ",         /* old long style           */
+     "+1 pda@ib  +1 pda@ig  +1 pda@ip  +1 pda@ir",
+     "+1 pda@it  +1 pda@iw  +1 pda@iy",
+     "+1 pda@ui1 +1 pda@ui2 +1 pda@ui3 +1 pda@ui4",
+     "+1 pda@tb  +1 pda@tg  +1 pda@tp  +1 pda@tr",
+     "+1 pda@tt  +1 pda@tw  +1 pda@ty",
+     "+1 pda@ut1 +1 pda@ut2 +1 pda@ut3 +1 pda@ut4",
+     "+1 pda@sc",                                /* shadow var               */
+     "=1 @nl  +1 @sf  +1 @se ",                  /* new short style          */
+     "+1 @ib  +1 @ig  +1 @ip  +1 @ir",
+     "+1 @it  +1 @iw  +1 @iy",
+     "+1 @ui1 +1 @ui2 +1 @ui3 +1 @ui4",
+     "+1 @tb  +1 @tg  +1 @tp  +1 @tr",
+     "+1 @tt  +1 @tw  +1 @ty",
+     "+1 @ut1 +1 @ut2 +1 @ut3 +1 @ut4",
+     "+1 @sv;",                                  /* shadow var               */
+   "pda@inp=xrange(pda@ir,pda@ui4);@inp=pda@inp;",
+   "pdamaxd="pdamaxd";pdamaxw="pdamaxw
+ interpret pdaattr
+ /* re-build area of it contains line breaks          */
+ /* pos(pda@nl,left(pdaarea,pdascrw))>0 then do*/
+ if pos(@nl,pdaarea)>0 then do                   /* expand area              */
+   a=pdaarea
+   pdaarea=''
+   do while a<>''
+     parse var a l (pda@nl) +1 a
+     pdaarea=pdaarea || left(l,pdascrw)
+   end
+ end
+ if pos(@nl,pdaashad)>0 then do                  /* expand shadow            */
+   a=pdaashad
+   pdaashad=''
+   do while a<>''
+     parse var a l (pda@nl) +1 a
+     pdaashad=pdaashad || left(l,pdascrw)
+   end
+ end
+ /* compute some values */
+ pdahdr=center(strip(pdahdr),pdascrw-2)
+ if pdafixn='' then pdafixn=0
+ aln=length(pdaarea)/pdascrw                     /* total num of lines       */
+ /* map variables and fill in data */
+ @pdavmap=''
+ if pdavars<>'' then do
+   vl=translate(pdavars)
+   parse value 1 1 with p vln
+   do forever
+     p=Verify(pdaarea,pda@inp,'m',p)             /* locate target field      */
+     if p=0 then leave
+     if vl='' then do
+       say '*pnlvars overflow'
+       leave
+     end
+     m=Verify(pdaarea,pda@all,'m',p+1)           /* area end pos             */
+     l=m-p-1                                     /* area length              */
+     parse var vl vn vl                          /* get name                 */
+     pdaarea=overlay(value(vn),pdaarea,p+1,l,' ') /* insert value            */
+     if substr(pdaarea,p,1)<pda@tb then,
+       @pdavmap=@pdavmap vn p+1 l                /* add to map               */
+     p=m
+   end
+ end
+ /* some final settings */
+ @pdaarea=pdaarea || pda@tb                      /* save for later compare   */
+ if pdaarea<>'' then do                          /* reposition in select fld */
+   if @pdacsrp='' then @pdacsrp=0
+   n=((@pdacsrp%pdascrw)*pdascrw)+1
+   if substr(pdaarea,n,1)=pda@sf | substr(pdaarea,n,1)=pda@se,
+     then @pdacsrp=n+1
+   if pdacsrp<>'' then @pdacsrp=pdacsrp          /* override cursor pos      */
+   if pdacsrp<>'' then @pdacsra='PDAAREA'        /* override cursor area     */
+ end
+*ENDREXX
+ if (&pdahelp NE &Z)
+   .help = &pdahelp
+ if (&@pdacsra EQ 'PDAAREA')
+   .csrpos = &@pdacsrp
+   .cursor = &@pdacsra
+ else
+   .cursor = ZCMD
+   .csrpos = 1
+)Reinit
+ Refresh(*)
+)Proc
+ &@pdacsrp = .csrpos
+ &@pdacsra = .cursor
+ &@presp   = .resp
+ &pdaplmsg = &Z
+ &pdacsrp  = &Z
+ &zedlmsg  = ''
+ vget (zverb zscrolla zscrolln) shared
+*REXX(* @pdacsrp @pdacsra @errpos @pdavmap pdadpth,@pdaarea,@selp,
+        zverb zscrolla zscrolln zedlmsg,
+        pdascrw pdafixn pdapos pdamax,
+        pdavars &pdavars pdaattr pdaselc pdalcmdl)
+ errmsg=''
+ interpret pdaattr
+ parse value '' with pdasell pdaselv
+ if pdapos='' then pdapos=1
+
+ /* reset lcmd errors    */
+ do while @errpos<>''
+   parse var @errpos p @errpos
+   pdaarea=overlay(pda@sf,pdaarea,p)
+ end
+
+ /* pull variable data from top section */
+ vm=@pdavmap
+ do while vm<>''
+   parse var vm vn vp vl vm
+   zz=value(vn,strip(substr(pdaarea,vp,vl),'t'))
+ end
+
+ /* pull line command(s) */
+ selc=pdaselc
+ if left(selc,1)='=' then parse var selc =2 pas . =2 selc /* point-and-shoot */
+ else pas=''
+ pdalcmdl=''
+ p=(pdafixn*pdascrw)+1
+ selchrs=pda@sf || pda@se
+ if wordpos(@presp,'END RETURN')=0 & length(pdaarea)>0 then do forever
+   p=verify(pdaarea,selchrs,'m',p)+1
+   if p=1 then leave
+   l=verify(pdaarea,pda@all,'m',p)-p
+   if l<=0 then leave
+   if substr(pdaarea,p,l)=substr(@pdaarea,p,l) then iterate
+   s=translate(strip(substr(pdaarea,p,l)))
+   if s<>'' & selc<>'' then if wordpos(s,selc)=0 then do
+     @errpos=p-1
+     errmsg='Bad linecmd' s
+     pdaarea=overlay(pda@se,pdaarea,@errpos)
+     @pdacsrp=@errpos+1
+   end
+   pdalcmdl=pdalcmdl || pdapos+((p%pdascrw)-pdafixn)','s','
+ end
+ if pas<>'' & pdalcmdl='',                      /* point-and-shoot           */
+  & wordpos(zverb,'DOWN MAX')=0 then do
+   n=(@pdacsrp%pdascrw)                         /* panel line nr             */
+   if pos(pda@sf,substr(pdaarea,(n*pdascrw)+1,pdascrw))>0, /* selfld in line?*/
+     then pdalcmdl=n-pdafixn+pdapos','pas','
+ end
+
+ /* handle scrolling     */
+ if errmsg='' & zverb<>'' & wordpos(@presp,'END RETURN')=0 then do
+   @csrline=(@pdacsrp%PDASCRW)+1
+   if @pdacsra='PDAAREA' & @csrline<=pdafixn then, /* cursor in fixed part   */
+     parse value 'CSR' pdadpth with zscrolla zscrolln
+   select
+     when zverb zscrolla='DOWN MAX' then pdapos=pdamax-pdadpth+pdafixn+1
+     when zverb zscrolla='UP MAX' then pdapos=1
+     when zverb zscrolla='DOWN CSR' then pdapos=pdapos+zscrolln-pdafixn
+     when zverb zscrolla='UP CSR' then pdapos=pdapos-zscrolln+pdafixn
+     when zverb='DOWN' & datatype(zscrolla)='NUM' then,
+       pdapos=pdapos+zscrolla
+     when zverb='UP' & datatype(zscrolla)='NUM' then,
+       pdapos=pdapos-zscrolla
+     when zverb='DOWN' then pdapos=pdapos+zscrolln
+     when zverb='UP'   then pdapos=pdapos-zscrolln-pdafixn
+     otherwise nop
+   end
+   if pdapos<1 then pdapos=1
+   if pdapos>pdamax then pdapos=pdamax
+ end
+ if @pdacsrp<1 then @pdacsrp=1
+ if pdapos<1 then pdapos=1
+ if pdapos>pdamax then pdapos=pdamax
+
+ if errmsg<>'' then do
+   zrxrc=8
+   zedlmsg=errmsg
+   zrxmsg='ISRZ000'
+ end
+ else @errpos=''
+*ENDREXX
+)End
+
+
+3. Sample REXX program
+
+/*                                                              REXX
+
+ Dynarea - Build dynamic scrollable display from list
+
+ Demo program
+
+ The program does a TSO LISTALC, pulls datasetnames and generates 2
+ screen lines per dataset, the first line with a select field. There
+ is also a fixed data entry line and an output date / time line. The
+ data is not checked, those lines are there to demonstrate the
+ features. Line commands are supplied to either browse or ListCat the
+ dataset. The top fixed section uses the shadow variable to highlight
+ some characters.
+
+ Primary commands
+      Find Ýtt¨  Find next 'tt', reposition display. When no 'tt' then
+                 use previous value, if any.
+
+ Select line commands
+      B          Browse dataset.
+      L          Listcat dataset - point-and-shoot command.
+      K          Keep the linecommand (for testing).
+
+ There is also a fixed data entry line. The data is not checked, it is
+ there to demonstrate the features.
+
+ See http://harders-jensen.com ISPPDAS for more samples and ISPPDA for
+ the basic panel.
+
+*/
+ Signal on novalue name PgmNoVal
+ Address ispexec "control errors return"
+ Address Ispexec "vget (zscrmaxd zscrmaxw)"
+ parse value '' with name                        /* init som vars            */
+
+ /* get panel attr chars */                      /* required                 */
+ Call PdaInit
+
+ /* make list of allocated datasets */
+ zz=outtrap('lst.')
+ "lista status history"
+ zz=outtrap('off')
+ o=0
+ upfx=userid()'.'
+ upfxl=length(upfx)
+ do n=2 to lst.0
+   if left(lst.n,3)='IKJ' then iterate           /* error msg                 */
+   o=o+1                                         /* bump output ptr           */
+   if pos('.',lst.n)>0 & pos('?',lst.n)=0 then do /* dataset                  */
+     parse var lst.n dsn .
+     if left(dsn,upfxl)=upfx then dsn= @ty || dsn
+     else if left(dsn,5)='SYS1.' then dsn= @tp || dsn
+     else dsn=@tg || dsn
+     data.o=@sf || '  ' || @tb || right(o,4,0) || dsn || @tb
+   end
+   else data.o=@tb'   'right(o,4,0) || @tg || strip(lst.n,'t') || @tb
+   copy.o=data.o                                 /* make copy                */
+ end
+ data.0=o
+ drop lst.
+ /* done */
+
+ /* Main */
+ pdaselc ='=L B K'                               /* line sel cmds, L is PAS  */
+ pdapos=1
+ do $main=1 to 999999
+   /* make panel */
+   Call PdaReinit
+   Call Pdaline @tg'Line cmds: Browse Listcat',,
+                  '            #      #','#'
+   Call Pdaline @tg'Enter name'@ui1 || left(' ',40) || @tb
+   Call Pdaline ''
+   pdavars='name'                                /* fixed area vars          */
+   pdafixn=pdalines                              /* # fixed lines            */
+   do n=pdapos to data.0 for pdamaxd             /* add scrollables          */
+     call Pdaline data.n
+   end
+   pdamax =data.0                                /* data # of lines          */
+   /* display and check response */
+   pdahdr ='Test dynamic scrollable screen area'
+   savename=name
+   zcmd=''
+   Address Ispexec "Display panel(ISPPDA#S)"
+   if rc>8 then exit ispmsg('Bad rc from panel:' rc zerrlm)+8
+   if rc>0 then leave   /* End or return command entered       */
+   /* handle data from fixed (top) area  */
+   if name<>savename then call ispmsg 'name change'
+   /* handle select fields  */
+   do while pdalcmdl<>''
+     parse var pdalcmdl cpos','cval','pdalcmdl
+     dsn=word(translate(data.cpos,' ',pda@all),2)
+     select
+       when cval='B' then address ispexec "browse dataset('"dsn"')"
+       when cval='L' then call DoListCat(dsn)
+       when cval='K' then,                       /* keep lcmd for test       */
+         data.cpos=overlay(cval,data.cpos,2,2)
+       when cval='' then,
+         data.cpos=overlay(' ',data.cpos,2,2)    /* lcmd cleared             */
+       otherwise call ispmsg('??lc shouldnt come here')
+     end
+   end
+   /* handle primary commands */
+   parse var zcmd cverb cdata
+   select
+     when zcmd='' then nop
+     when abbrev('F',cverb,1) then Call DoFind   /* Find data                */
+     otherwise call ispmsg '*Invalid command' zcmd
+   end
+ end
+ if name<>'' then say 'name:' name
+ exit 0
+
+PgmNoVal:
+ say '*Novalue raised for line' sigl '-'
+ say strip(sourceline(sigl),'t')
+ exit 12
+
+IspMsg:
+ parse arg zedlmsg
+ address ispexec "setmsg msg(isrz000)"
+ return 0
+
+Pdaline:                                          /* add screen buffer line   */
+ pdaarea=pdaarea || strip(arg(1),'t') || @nl      /* add to area with newln   */
+ pdalines=pdalines+1
+ if arg()=1 then return 0
+ ?=arg(2)
+ if arg()=3 then ?=translate(?,@sv,arg(3))
+ pdaashad=pdaashad || strip(?,'t') || @nl         /* add to shadow with newln */
+ return 0
+
+PdaInit:                                          /* get panel attr chars     */
+ pdascrw=80                                       /* reqd for 1st call        */
+ Address Ispexec "vget zscrmaxd"
+ pdamaxd=zscrmaxd
+ Address Ispexec "Control nondispl enter"
+ Address Ispexec "Display panel(ISPPDA#S)"
+ Interpret pdaattr
+ parse value 1 0 with pdapos pdamax pdaselc
+ parse value 'turq uscore' with @ui1c @ui1h
+ Return PdaReInit()
+
+PdaReinit:                                        /* reset some vars          */
+ parse value 0 0 0 with pdalines pdamax pdafixn pdaarea pdashad
+ return 0
+
+DoFind:
+ if cdata='' & symbol('findsave')='VAR' then cdata=findsave
+ if cdata='' then return ispmsg('Missing argument')
+ findsave=cdata
+ do p=pdapos+1 to data.0 until pos(cdata,data.p)>0; end
+ if p>data.0 then return ispmsg(cdata 'not found')
+ pdapos=p
+ return 0
+
+DoListCat:  procedure expose pdaattr pdamaxd     /* L line command           */
+ Interpret pdaattr
+ call PdaReinit
+ pdapos=1
+ arg dsn .
+ zz=outtrap('lst.')
+ "listc ent('"dsn"') all"
+ zz=outtrap('off')
+ /* build panel */
+ pdamax=lst.0
+ if pdamaxw>=121 then pdascrw=121
+ pdahdr='Listcat' dsn
+ do until rc>0
+   parse value '' with zcmd pdaarea
+   Call Pdaline ''                               /* fixed blank line at top  */
+   pdafixn=1                                     /* for better looks         */
+   do #=pdapos to lst.0 for pdamaxd
+     Call Pdaline ' 'lst.#
+   end
+   Address Ispexec "Display panel(ISPPDA#S)"
+ end
+ if rc>8 then say 'Display rc' rc zerrlm
+ return 0

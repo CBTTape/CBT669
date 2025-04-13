@@ -1,0 +1,91 @@
+ /*                                                           rexx
+ Update members of the CBT 669 library
+ Requires the STARTOOL or PDS86 program.
+ */
+
+ parse source sys type whoami ddn whereami .
+
+ /* select program to use for update */
+ pgm='STARTOOL'                   /* choose one   */
+ pgm='PDS86'                      /* or the other */
+
+ /* target loadlib(s) */
+ if userid()='WJENSEN' then do
+   lpalib =userid()'.CBT.LINKLIB'
+   linklib=userid()'.CBT.LINKLIB'
+ end
+ else do
+   lpalib =userid()'.test.lpalib'
+   linklib=userid()'.test.linklib'
+ end
+
+ /* edit job options */
+ jp  = left(userid(),2)     /* job name prefix */
+ ja  = '1'                  /* job account     */
+ jc  = 'A'                  /* job class       */
+ jm  = 'T'                  /* message class   */
+
+ /* now do updates */
+ upper lpalib linklib
+ ""pgm "'"whereami"' repl a:y 'cbt669.lib' '"whereami"' write"
+ ""pgm "'"whereami"' repl a:y 'cbt669.lpalib' '"lpalib"' write"
+ ""pgm "'"whereami"' repl a:y 'cbt669.linklib' '"linklib"' write"
+ ""pgm "'"whereami"' repl ISPDPX01 'CBT669.PP.ISPDPX01.LIB'",
+       "'"whereami"' write"
+ ""pgm "'"whereami"' repl ISPPDA 'CBT669.PP.ISPPDA.LIB'",
+       "'"whereami"' write"
+ ""pgm "'"whereami"' repl REXXGBLV 'CBT669.PP.REXXGBLV.LIB'",
+       "'"whereami"' write"
+ ""pgm "'"whereami"' repl REXXSTOR 'CBT669.PP.REXXSTOR.LIB'",
+       "'"whereami"' write"
+ ""pgm "'"whereami"' repl REXXVARS 'CBT669.PP.REXXVARS.LIB'",
+       "'"whereami"' write"
+ ""pgm "'"whereami"' repl RXHLLK 'CBT669.PP.RXHLLK.LIB'",
+       "'"whereami"' write"
+ ""pgm "'"whereami"' repl RXOPCOMM 'CBT669.PP.RXOPCOMM.LIB'",
+       "'"whereami"' write"
+ ""pgm "'"whereami"' repl RXPATTRN 'CBT669.PP.RXPATTRN.LIB'",
+       "'"whereami"' write"
+ ""pgm "'"whereami"' repl RXPIPE 'CBT669.PP.RXPIPE.LIB'",
+       "'"whereami"' write"
+ ""pgm "'"whereami"' repl RXRDPRML 'CBT669.PP.RXRDPRML.LIB'",
+       "'"whereami"' write"
+ ""pgm "'"whereami"' repl RXREALDS 'CBT669.PP.RXREALDS.LIB'",
+       "'"whereami"' write"
+ ""pgm "'"whereami"' repl RXVSAMBA 'CBT669.PP.RXVSAMBA.LIB'",
+       "'"whereami"' write"
+ ""pgm "'"whereami"' repl RXWAIT 'CBT669.PP.RXWAIT.LIB'",
+       "'"whereami"' write"
+
+ /* Use edit macro to update job stmt - edit member Z669MAC1 */
+ names=,
+   'ISPDPX01',
+   'ISPPDA',
+   'REXXGBLV',
+   'REXXSTOR',
+   'REXXVARS',
+   'RXHLLK',
+   'RXOPCOMM',
+   'RXPATTRN',
+   'RXPIPE',
+   'RXRDPRML',
+   'RXREALDS',
+   'RXVSAMBA',
+   'RXWAIT',
+   ''
+
+ "altlib act appl(exec) da('"whereami"')"
+ p='jp('jp') ja('ja') jc('jc') jm('jm')'
+ do n=1 to words(names)
+   name=word(names,n)
+   say 'Job stmt update for' name
+   address ispexec "edit dataset('"whereami"("name")')",
+                   "macro(z669mac1) parm(p)"
+   if rc>4 then do
+     say '*Edit rc:' rc
+     leave
+   end
+ end
+ "altlib deact appl(exec)"
+ exit 0
+

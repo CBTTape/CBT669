@@ -1,0 +1,283 @@
+/*                                                                  rexx
+ RxPipe make member list
+
+ See SYS1.MODGEN(IHAPDS) for pds directory mapping
+ See also CBT file 382 LISTDIR
+
+ Syntax
+
+  MBRLIST libnameÝ(member)¨ | ddnameÝ(member)¨ ÝVOL volser¨
+          ÝÝFIELDS | F¨ fields¨ ÝWHERE | W filter¨
+
+   libname    Datasetname. The dataset can be source pds or loadlib.
+   DD=ddname  DD name. The dataset can be source pds or loadlib.
+   member     Member name or mask.
+   fields     Optinal list of fields to add to the output record.
+              Valid fields for a sourcelib are DSNAME NAME CREDT MODDT
+              MODTM SIZE INIT ID VERS MOD and ALIASOF. Valid fields
+              for a loadlib are NAME SIZE ATTR and ALIASOF.
+              Default is 'NAME'.
+   volser     Optional volser for dataset selection.
+
+ Samples
+  -  Mbrlist A.TEST.PDS(*ST*) fields name dstyp credt size id
+  -  Mbrlist A.LIB.LINKLIB(MCS*) fields name attr size ssi
+*/
+ parse value 0 with rc err vol @f @fields @v @vol @w @where
+ arg dsn p
+ interpret RXPIKPAR('F' p,'f fields v vol w where','@')
+ if err<>'' then call quit 8,err
+ fldl=translate(space(@f @fields))
+ whr =strip(@w @where)
+ if fldl='' then fldl='NAME'   /* must be uppercase */
+ parse value strip(dsn) with dsn'('member')' .
+
+ if dsn='' then return xmsg('Missing lib/ddname')+8
+ vf='DSNAME NAME CREDT MODDT MODTM SIZE INIT ID VERS MOD ALIASOF ATTR'
+ do i=1 to words(fldl)
+   if wordpos(word(fldl,i),vf)=0 then,
+    return xmsg('Bad fieldname' word(fldl,i))+9
+ end
+
+ cc=UseInternal()
+ Call quit
+
+ /*--------------------------------------------------------------------
+                    Internal directory processor
+ --------------------------------------------------------------------*/
+UseInternal:
+
+ /* allocate library */
+ if pos('.',dsn)>0 then dsn=unquote(dsn)
+ else cc=BpxWdyn('info dd('dsn') inrtdsn(dsn)')
+ dsname =dsn          /* new in 006.6 */
+ $dsname=dsn          /* new in 006.6 */
+ if @vol<>'' then vol='VOL('@vol') unit(sysallda)'
+ cc=Bpxwdyn('alloc da('dsn')' vol 'shr rtddn(libdd)',
+            'recfm(f) dsorg(ps) lrecl(256) blksize(256)')
+ if cc<>0 then call quit 8,'Allocate' dsn 'rc' cc
+
+ /* read directory */
+ "execio * diskr" libdd "(stem dir. finis)" /* read pds directory */
+ if rc<>0 then call quit 8+Bpxwdyn('free dd('libdd')'),,
+       'Read dir for' dsn 'rc' rc
+
+ /* get dataset info */
+ cc=Listdsi(libdd 'file')
+ if cc<>0 then return xmsg('Listdsi for' dsn 'rc' cc)
+ rfm=left(sysrecfm,1)
+ dstyp='?'
+ if pos(rfm,'FV')>0 then dstyp='S'
+ if pos(rfm,'U')>0 then dstyp='L'
+ zz=Bpxwdyn('free dd('libdd')')
+
+ /* Build work lists  */
+ parse value 0 0 with namen aliasn $aliasof. $aliaslst.
+ parse value '' with $name. $credt. $moddt. $modtm. $size. $init.,
+   $mod. $id. $attr. $aliasof. $aliaslst. $ssi.
+ $dstyp.=dstyp
+ Do blk = 1 to dir.0
+   usedbytes = C2D(substr(dir.blk,1,2))
+   diridx = 3                           /* skip past used bytes */
+   do while diridx < usedbytes
+     if substr(dir.blk,diridx,8) = 'ffffffffffffffff'x then leave blk
+     parse value namen+1 with namen,
+       aliasof vers created moddate modtime size init mod id
+     dpos     = diridx
+     name     = strip(substr(dir.blk,diridx,8)) /* member name */
+     name.namen=name
+     ttr      = c2x(substr(dir.blk,dpos+8,3))
+     diridx   = diridx + 11                /* skip past name and ttr */
+     indc = substr(dir.blk,diridx,1)
+     if left(x2b(c2x(indc)),1)=0 then ttrl.ttr = name
+     if left(x2b(c2x(indc)),1)=1 then do
+       aliasn=aliasn+1
+       alias.aliasn=name
+       alias.name=ttr
+     end
+     len = bitand(indc,'1f'x)            /* isolate user data length */
+     usrdatal = c2d(len)*2               /* halfwords to bytes */
+     if pos(rfm,'FV')>0 then do
+       if usrdatal = 30 then do            /* ISPF statistics? */
+         $vers.name = right(c2d(substr(dir.blk,diridx+1,1)),2,0)'.',
+            ||  right(c2d(substr(dir.blk,diridx+2,1)),2,0)
+         $credt.name = pj2d(substr(dir.blk,diridx+6,3))
+         $moddt.name = pj2d(substr(dir.blk,diridx+10,3))
+         m=c2x(substr(dir.blk,diridx+13,2)substr(dir.blk,diridx+4,1))
+         $modtm.name = Insert(':',Insert(':',m,4),2)
+         $size.name    = right(c2d(substr(dir.blk,diridx+15,2)),6)
+         $init.name    = right(c2d(substr(dir.blk,diridx+17,2)),6)
+         $mod.name     = c2d(substr(dir.blk,diridx+19,2))
+         $id.name      = substr(dir.blk,diridx+21,8)
+       end
+       else $data.name='-no info-'
+     end
+     if rfm='U' then do
+       attr=''
+       atr1     = substr(dir.blk,dpos+20,1)
+       atr1b    = x2b(c2x(atr1))
+       atr2     = substr(dir.blk,dpos+21,1)
+       atr2b    = x2b(c2x(atr2))
+       stor     = substr(dir.blk,dpos+22,3)
+       storn    = c2d(stor)
+       ftb1     = substr(dir.blk,dpos+30,1)
+       ftb1b    = x2b(c2x(ftb1))
+       ftb2     = substr(dir.blk,dpos+31,1)
+       ftb2b    = x2b(c2x(ftb2))
+       apfa     = substr(dir.blk,dpos+34,1)
+       if atr1 = '00'x then attr=attr 'NOEX'
+       if substr(atr1b,1,1)='1' then attr=attr 'RENT'
+       if substr(atr1b,2,1)='1' then attr=attr 'REUS'
+       if substr(ftb2b,4,1)='1' then attr=attr 'RANY'
+       else attr=attr 'R24'
+       if substr(ftb2b,7,2)='00' then attr=attr 'A24'
+       else if substr(ftb2b,7,2)='10' then attr=attr 'A31'
+       else if substr(ftb2b,7,2)='11' then attr=attr 'AANY'
+       else if substr(ftb2b,7,2)='01' then attr=attr 'A64'
+       if substr(ftb1b,5,1)='1'  & apfa = '01'x then attr = attr 'APF'
+       $attr.name=left(translate(space(attr),',',' '),24)
+       $size.name=right(storn,6)
+     end
+     diridx = diridx + usrdatal + 1     /* skip past user data */
+   end
+ end
+ name.0=namen
+
+ /* make alias info */
+ do n=1 to aliasn
+   an=alias.n
+   ttr=alias.an
+   mn=strip(ttrl.ttr)
+   an=strip(an)
+   $aliasof.an=mn
+   $aliaslst.mn=$aliaslst.mn an
+ end
+
+ /* write list */
+ fl=''                   /* make interpret list */
+ do i=1 to words(fldl)
+   n=word(fldl,i)
+   if n<>'NAME' & n<>'DSNAME' then n='$'n'.$name'
+   fl=fl n
+ end
+ ?fname=wordpos('NAME',fl)>0
+ if member<>'' then mbr="if \mask(member,name) then iterate;"
+ else mbr=''
+ if whr<>'' then whr=,
+   "vers=$vers.$name ;",
+   "credt=$credt.$name;",
+   "moddt=$moddt.$name;",
+   "modtm=$modtm.$name;",
+   "size=$size.$name;",
+   "init=$init.$name;",
+   "mod=$mod.$name;",
+   "id=$id.$name;",
+   "attr=$attr.$name ;",
+   "dsname=$dsname ;",
+   "if "whr" then"
+ $c="do nn=1 to name.0;",
+   "name  =name.nn;",
+   mbr,
+   "$name =name;",
+   "name  =left(name,8);",
+   whr "queue" fl";",
+ "end"
+ /*say $c */
+ Interpret $c
+ return 0
+/*
+ do nn=1 to name.0
+   name  =name.nn
+   $name =name
+   name  =left(name,8)
+   if member<>'' then if \mask(member,name) then iterate
+   interpret "queue" fl
+ end
+ return 0
+*/
+ /*--------------------------------------------------------------------
+                            Subroutines
+ --------------------------------------------------------------------*/
+Quit: /* parms: rc,msg */
+ if   arg(2)<>'' then call xmsg arg(2)
+ exit word(arg(1) 0,1)
+FmtDate:
+ parse value arg(1) with zy'/'zm'/'zd
+ if zy='' then return ''
+ parse value date('s') with tc +2 ty +2 .
+ if zy>ty then return tc-1||zy'-'zm'-'zd
+ return tc||zy'-'zm'-'zd
+
+p2d: procedure /* convert packed decimal to number */
+ n = c2x(arg(1))
+ l = length(n)
+ parse var n n =(l) s
+ if s = 'D' then return n*(-1)
+ return n
+
+pj2d: Procedure /* make packed julian date to dashed */
+ jd = right(p2d(arg(1)),7)
+ parse var jd cn +2 yy +2 ddd +3
+ if cn='01' then cn='19'
+ else cn='20'
+ bd = date('b',cn''yy'0101','s')-1+ddd
+ sd = date('s',bd,'b')
+ return Insert('-',Insert('-',sd,6),4) /* base to dashed     */
+Requote: if arg(1)='' then return '';else return "'"Unquote(arg(1))"'"
+Unquote: return strip(space(translate(arg(1)," ","'")))
+XMsg: if arg(1)<>'' then say 'MBRLIST' arg(1);return word(arg(2) 0,1)
+XTSO: trace off; zz=outtrap(word(arg(2) '$.',1))
+        address tso arg(1);zz=outtrap('off');xtsorc=rc;return rc
+/* MASK function - Performs ISPF-type pattern matching on a pair    rexx
+   of strings: 1st string is the pattern, 2nd is the data.
+   Parameters   mask,stringÝ,maskchrs¨
+   Returns   0  (false)  not matched or missing parm
+             1  (true )  match
+   Sample:  rc=RxPatMat('*EFG*','ABCDEFGH')                            */
+Mask:
+ if arg()=0 then return 0
+ parse arg msk,str,mchr
+ if arg()=1 then str=r
+ parse value word(mchr '*%',1) with mchr 1 mcm +1 mco  /* split mask chrs    */
+ parse value 1 1 length(msk) length(str) with mp sp ml sl .
+ do while mp<=ml & sp<=sl
+   select
+     when substr(msk,mp,1)=mco then,                   /* mask starts with % */
+       parse value mp+1 sp+1 with mp sp                /* bump ptrs          */
+     when substr(msk,mp)=mcm then return 1             /* match on rest      */
+     when substr(msk,mp,2)=mchr then do                /* both mask chrs     */
+       mp=mp+1
+       msp=verify(msk,mco,'n',mp+1)                    /* mak sub-str pos    */
+       if msp=0 then return (ml-mp)=(sl-sp)            /* rest mask is %s    */
+       p=verify(msk,mchr,'m',msp)
+       if p>0 then msl=p-msp
+       else msl=ml+1-msp
+       ms=substr(msk,msp,msl)                          /* mask substring     */
+       mpl=msp-mp                                      /* mask chrs len      */
+       p=pos(ms,str,sp+mpl)
+       if p=0 then return 0
+       sp=p-mpl
+     end
+     when substr(msk,mp,1)=mcm then do                 /* '*'                */
+       mp=mp+1                                         /* bump mask          */
+       p=verify(msk,mchr,'m',mp)                       /* -> end mask chr    */
+       if p=0 then return substr(msk,mp)=right(str,ml-mp+1) /* no more maskc */
+       ms=substr(msk,mp,p-mp)                          /* mask substr        */
+       msl=length(ms)
+       mp=p
+       p=pos(ms,str,sp)                                /* locate in string   */
+       if p=0 then return 0                            /* not found          */
+       sp=p+msl
+     end
+     when substr(str,sp,1)<>substr(msk,mp,1) then return 0 /* not matched    */
+     otherwise do
+       p=verify(msk,mchr,'m',mp)                       /* locate msk chr     */
+       if p=0 then return substr(msk,mp)=substr(str,sp)/* no more mask chrs  */
+       l=p-mp
+       if substr(msk,mp,l)<>substr(str,sp,l) then return 0
+       mp=mp+l
+       sp=sp+l
+     end
+   end
+ end
+ return (mp>ml & sp>sl ) | (mp=ml & substr(msk,mp)='*') /* both exhausted ?   */

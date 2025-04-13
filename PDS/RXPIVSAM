@@ -1,0 +1,114 @@
+ /*                                                               rexx
+  RXPIPE VSAM Access: read, write,..
+  Parameters: action clustername REPRO-parms
+ */
+
+ parse value copies('0 ',20) with avglen maxlen hiurba hiarba reccnt .
+ parse value '' with spctyp spcpri spcsec hiurba hiarba cldd wrkdd
+ varlist='spctyp spcpri spcsec hiurba hiarba avglen maxlen'
+ /*?RxVsamBa=LocatePgm('RxVsamba') */
+
+trace off
+ arg what clname prms
+ if abbrev('VERSION',what,3) then return '001'
+ if what='READ'  then exit VsRead()
+ if what='WRITE' then exit VsWrite()
+ exit xmsg('*Unknown VSAM command' arg(1))+8
+
+/* Read VSAM cluster */
+VSRead:
+ If Alloctemp()<>0 then return 8
+ /* copy data to temp ds  */
+ cc=bpxwdyn('alloc da('clname') shr rtddn(cldd)')
+ if cc<>0 then return xtso('free dd('cldd')'),
+                     +xmsg('*alloc cluster' clname 'rc' cc)+8
+ cc=XTSO('repro infile('cldd') outfile('wrkdd')' prms)
+ if cc<>0 then return xtso('free dd('cldd wrkdd')'),
+                     +xmsg('*copy failed rc' cc)+8
+ /* stack data            */
+ "execio * diskr" wrkdd "(finis)"
+ cc=rc
+ /* cleanup               */
+ Call xtso 'free dd('wrkdd cldd')'
+ if rc<>0 then return xmsg('*Read work rc' cc)+8
+ return 0
+
+/* Write to VSAM cluster */
+VSWrite:
+ If Alloctemp()<>0 then return 8
+ /* copy data to temp ds  */
+ cc=bpxwdyn('alloc da('clname') shr rtddn(cldd)')
+ if cc<>0 then return xtso('free dd('cldd')'),
+                     +xmsg('*alloc cluster' clname 'rc' cc)+8
+ "execio" queued() "diskw" wrkdd "(finis)"
+ /* write to dataset      */
+ cc=XTSO('repro infile('wrkdd') outfile('cldd') replace')
+ if cc<>0 then do n=1 to $.0
+   say $.n
+ end
+ if cc<>0 then return xtso('free dd('cldd wrkdd')'),
+                     +xmsg('*update failed rc' cc)+8
+ cc=rc
+ /* cleanup               */
+ Call xtso 'free dd('wrkdd cldd')'
+ if cc<>0 then return xmsg('*Read work rc' cc)+8
+ return 0
+
+ClInfo:  /* cluster get specs             */
+trace off
+ parse value '' with avglen hiarba hiurba maxlen ,
+   reccnt spcpri spcsec spctyp volser
+ arg out .
+ if XTso('listcat ent('requote(clname)') all')<>0 then,
+   return xmsg('*Listcat failed' arg(1))+8
+ do n=1 to $.0 until pos('LOW-CCHH',$.n)>0
+   l=l space(translate($.n,' ','-'))
+ end
+ parse var l . 'VOLSER' volser ,
+  . 1 . 'AVGLRECL'  avglen . 1 . 'MAXLRECL'   maxlen ,
+  . 1 . 'REC TOTAL' reccnt . 1 . 'SPACE TYPE' spctyp ,
+  . 1 . 'SPACE PRI' spcpri . 1 . 'SPACE SEC'  spcsec ,
+  . 1 . 'HI A RBA'  hiarba . 1 . 'HI U RBA'   hiurba .
+ if hiurba='' then exit xmsg('*Clinfo failed')+8
+ if out='INT' then return (hiurba='')  /* 0 if not true */
+ if out='SHOW' then return Listvar()
+ call   Listvar
+ Return Stackvar()
+
+AllocTemp: /* allocate temp ds      */
+ Call ClInfo 'INT'
+ s=spcpri
+ if left(spctyp,1)='C' then s=s*15
+ s=format(s/hiarba*hiurba,,0)+1
+ if pos('KEY(',prms)>0 then s=(s%2)+1
+ cc=bpxwdyn('alloc da(&&RXPvsam) new delete',
+            'lrecl('maxlen+4') recfm(v,b) blksize(0)',
+            'tracks space('s','s') unit(sysda) rtddn(wrkdd)')
+ if cc<>0 then return xmsg('*Alloc work failed' cc)+8
+ return 0
+
+Close:
+ if ddlist<>'' then Call XTSO 'free dd('ddlist')'
+ if arg(2)<>'' then say arg(2)
+ exit word(arg(1) 0,1)
+
+XTSO: trace off; zz=outtrap(word(arg(2) '$.',1))
+        address tso arg(1);zz=outtrap('off');xtsorc=rc;return rc
+
+XMsg: if arg(1)<>'' then say arg(1);return word(arg(2) 0,1)
+Transrec: return translate($.n,' ','-')
+Requote: if arg(1)='' then return '';else return "'"Unquote(arg(1))"'"
+UnQuote:  return,
+ translate(strip(strip(translate(arg(1),'04'x,' '),"b","'"),'b'),' ','04'x)
+LocatePgm: Procedure                             /* verify external program  */
+ signal on syntax name LocatePgmErr
+ Interpret "cc="arg(1)"()"
+ return 1
+LocatePgmErr: return 0
+
+ListVar:
+ trace off
+ do $=1 to words(varlist)
+   say left(word(varlist,$),12)' = "'Value(word(varlist,$))'"'
+ end
+ return 0

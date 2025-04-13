@@ -1,0 +1,96 @@
+See the RXPIPE member for updates to current version
+
+Ver Date        Desc
+001 2023-01-12  Initial
+    2023-01-31  Loads of updates
+002 2023-02-01  New LOAD and SAVE command option WHERE
+    2023-02-02  New FILTER MASK subcommand, new STEM command.
+    2023-02-02  Fix stem.0 in quit stem name.
+    2023-02-03  Externalize ISPF sub-commands to RXPIISPF
+    2023-02-03  New ISPF sub-commands SKEL and EDIT.
+    2023-02-04  Some restructure, fix write-append issue
+    2023-02-04  New NDUPLINE command.
+    2023-02-05  Add ISPF stats when write member
+    2023-02-05  New LOAD sub-command ROTATE
+    2023-02-06  New command OVERSTACK
+    2023-02-06  Fix variable substitution bug
+003 2023-02-09  Include the PATTERN subroutine + MASK sub-command.
+    2023-02-10  Redefine the IF command, add WHEN command.
+    2023-02-11  Fix issues with external stack handling.
+    2023-02-11  Drop the IF command. The REXX command should be enough.
+    2023-02-12  Rename PATTERN subroutine as MASK
+    2023-02-13  Add short forms for some commands, List, FIlter etc.
+    2023-02-13  Add optional external initialization RXPIINIT.
+    2023-02-13  Add JOIN subcommands ALL and SPACE.
+    2023-02-20  List stack at exit.
+    2023-02-21  New PAUSE command.
+    2023-02-22  Change short commands to abbreviations.
+    2023-02-23  New CATSEARCH command.
+    2023-02-25  Move DSNLIST and MBRLIST to RXPIISPF.
+    2023-02-26  Add PDSLIST command.
+    2023-02-28  Change cmd JOIN -> COMBine
+    2023-02-23  New command CLIP.
+    2023-03-02  New command JOIN.
+    2023-03-04  Drop cmd FUNC, add READ subcmd SAVE, new cmd COMPARE
+    2023-03-10  New cmd USS.
+    2023-03-16  Allocate uss files
+    2023-03-17  New sucommand <n for LOAD n alternative and >n for
+                SAVE n CLEAR alternative.
+    2023-03-21  Rewriting the DROP command. Fix ALLOC DD(ddname)
+    2023-03-28  Major rewrite for RUNCMD.
+    2023-04-01  Define IF as alias for WHEN
+    2023-04-08  RXPICATS new options ALL and RVOL
+    2023-04-10  Rewrite TABLE command, add ACAT parm to CATSEARCH.
+004 2023-04-10  Build 004 created
+    2023-04-11  SKEL command, allow name list.
+    2023-04-11  New command CALC.
+    2023-04-12  Fix invalid call to ISPF SETMSTAT from ALLOCATE
+    2023-04-13  New commands INCLUDE and EXCLUDE replaces LOCATE and
+                NLOCATE.
+    2023-04-28  Fix READ .. WHERE
+    2023-05-05  Hard-code TSO/E external functions for CALL.
+                New command REPLACE
+    2023-05-06  Fix wrong call to SETMSTAT for DD(ddname).
+    2023-05-08  Better handling of stack as input.
+    2023-05-08  Add external routine RXPISDSF.
+    2023-05-09  Add internal routine CALL, drop test for special externals.
+    2023-05-10  Improved PROFILE PREFIX and ON SYNTAX handling.
+    2023-05-11  Redefine TERMinal to write stack to terminal.
+    2023-05-12  Fix problem with KParse and quotes.
+005 2023-05-15  Relabel internal routines.
+    2023-05-22  Support ddname(member) for READ and WRITE commands.
+                New commands FANOUT and FANIN.
+    2023-05-23  Update the list of reserved words to ALLOCATE.
+    2023-05-29  Change the REPLACE command for better string parm handling.
+    2023-06-01  New BLOCK command.
+    2023-06-20  New command ASK, enhanced SAY + GETCONS.
+006 2023-06-21  Restructure of documentaton members. Add SUBLIB to the
+                RXPIPE driver pgm.
+    2023-06-22  New QUIT parm VAR.
+    2023-07-06  Rewrite FOREACH processing, add multi-cmd support.
+    2023-07-10  New COND subparm for READ
+    2023-07-10  Fix FOREACH command with special char, i.e. <
+    2023-07-12  Fix ALTLIB issue with the driver (RXPIPE) command.
+    2023-12-23  REXX * to run stack as pgm. New variable $LASTDS.
+007 2024-01-11  Rewritten internal controller.
+                New COUNT TERM keyword.
+                The delimiter can no longer be redefined.
+    2024-01-12  New variable $MSGLVL. New default ' ' for SPLIT.
+    2024-01-16  Drop generated duplicate parms in alloc.
+    2024-01-17  Fix SPLIT text problem - text was not included in output.
+                Fix some head/tail issues
+    2024-01-18  Fix SPLIT problem - do not output blank lines.
+    2024-01-23  Rewrite FANIN, add ROTATE option
+    2024-01-24  Add DLM parameter to FOREACH.
+    2024-01-29  Rewriting the TABLE command, fix issue with replace parms.
+    2024-02-06  Rewriting the QUIT STEM feature, fix VSUB bad varname.
+    2024-02-13  Change to return value handling, alloc failure will abort pgm.
+    2024-02-20  Update external RXPIQSOR pgm.
+    2024-03-10  Fix error when 0quit is called with d-quotes
+    2024-03-101 Rewrite 0BLOCK as BLOCK, used through KEEP and DROP.
+    2024-03-26  Error msg when QUIT STEM and not a function.
+008 2024-09-30  Option(s) may now be 1st word of command. It must start with
+                a '-'. So far the only option is NOISPF.
+    2024-09-30  Fix problem with 'DROP BLOCK FROM xxx TO BEFORE yyy'
+    2024-10-03  Add option SCRW(screen-width)
+    2024-10-22  Add COLS command.

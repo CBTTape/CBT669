@@ -1,0 +1,63 @@
+/*                                               rexx
+   Show name/token pair info
+   parameter: TCB, ASCB, SYS or ALL.  Default is ALL
+*/
+ numeric digits 10
+ parse arg opt,txt
+ upper opt
+ if opt='' | opt='ALL' then opt='TCB ASCB SYS'
+ if txt<>'' then say 'NTSCAN' txt
+ else Say 'NTSCAN' opt
+
+ /* TCB level */
+ if wordpos('TCB',opt)>0 then do
+   tcb   = C2D(Storage(21C,4))    /*  get current TCB */
+   if tcb<> 0 then do
+      stcb  = C2D(Storage(D2X(tcb+312),4))
+      nttp  = C2D(Storage(D2X(stcb+200),4))
+      If nttp<>0 then Call DoNT nttp,'Task'
+   end
+ end
+
+ /* ASCB level */
+ if wordpos('ASCB',opt)>0 then do
+   ascb  = C2D(Storage(224,4))    /*  get current ascb */
+   if ascb<> 0 then do
+      assb = C2D(Storage(D2X(ascb+336),4))
+      nttp = C2D(Storage(D2X(assb+220),4))
+      If nttp<>0 then Call DoNT nttp,'Address space'
+   end
+ end
+
+ /* system level */
+ if wordpos('SYS',opt)>0 then do
+   cvt      = C2d(Storage(10,4))            /* get CVT pointer */
+   ecvt     = C2d(Storage(D2x(cvt+140),4))  /* get CVTECVT */
+   nttp  = C2D(Storage(D2X(ecvt+140),4))
+   Call DoNT nttp,'System'
+ end
+ exit 0
+
+ /* routine to report on name token pairs */
+DoNT:
+ Parse Arg ptr,title
+ Say title' level NTTP at 'D2X(ptr)
+ eye = Storage(D2X(ptr),4)
+ If eye <> 'NTTH' then Do
+   Say '** Invalid eye catcher found for NTTP'
+   Return
+ End
+ base = C2D(Storage(D2X(ptr+64),4))
+ Do While base <> 0
+   tcbt  = C2X(Storage(D2X(base+4),4))
+   name  = Storage(D2X(base+8),16)
+   token = C2X(Storage(D2X(base+24),16))
+   Say '  Name 'name' from 'tcbt
+   display = X2C(token)
+    /* translate out characters between 00 and 3f */
+   display = TRANSLATE(display,,XRANGE(,'3f'x),'00'x)
+   Say '    Token = 'token' ('display')'
+   base = C2D(Storage(D2X(base+64),4))
+ End
+ Say ''
+ Return
